@@ -162,6 +162,12 @@ class AzStateProviders {
         | Where-Object -Property Release -EQ $Release
     }
 
+    # Static method to load Cache from input object within parallel jobs
+    static [Void] LoadCache([PSCustomObject]$AzStateProvidersCache) {
+        Write-Verbose "Loading Cache from AzStateProvidersCache variable (Found)"
+        [AzState]::Cache = $AzStateProvidersCache            
+    }
+
     # Static method to clear all entries from Cache
     static [Void] ClearCache() {
         [AzStateProviders]::Cache = @()
@@ -261,14 +267,14 @@ class AzState {
                 $private:PolicyResourceTypes = @(
                     "Microsoft.Authorization/policyDefinitions"
                     "Microsoft.Authorization/policySetDefinitions"
-                    "Microsoft.Authorization/policyAssignments"
+                    # "Microsoft.Authorization/policyAssignments"
                     # "Microsoft.Authorization/roleDefinitions"
                     # "Microsoft.Authorization/roleAssignments"
                 )
             }
             "Microsoft.Resources/resourceGroups" {
                 $private:PolicyResourceTypes = @(
-                    "Microsoft.Authorization/policyAssignments"
+                    # "Microsoft.Authorization/policyAssignments"
                     # "Microsoft.Authorization/roleDefinitions"
                     # "Microsoft.Authorization/roleAssignments"
                 )
@@ -367,6 +373,12 @@ class AzState {
             Write-Verbose "Adding [$($this.Id)] to cache."
             [AzState]::Cache += $this
         }
+    }
+
+    static [AzState] InParallel([PSCustomObject]$PSCustomObject, [PSCustomObject]$AzStateProvidersCache, [PSCustomObject]$AzStateCache) {
+        [AzStateProviders]::LoadCache($AzStateProvidersCache)
+        [AzState]::LoadCache($AzStateCache)
+        return [AzState]::new($PSCustomObject.Id)
     }
 
     # [Void] Initialize([AzState]$AzState) {
@@ -775,6 +787,40 @@ class AzState {
         return $private:FromScope
     }
 
+    # Static method to support returning multiple AzState objects from defined scope
+    # using multiple thread jobs to enable parallel processing
+    static [AzState[]] FromScopeParallel([String]$Scope) {
+        # $private:FromScopeParallel = @()
+        if (-not $AzStateThrottleLimit) {
+            $AzStateThrottleLimit = 10
+        }
+        # if (-not $AzStateTimeoutSeconds) {
+        #     $AzStateTimeoutSeconds = 60
+        # }
+        $AzStateCache = [AzState]::Cache
+        $AzStateProvidersCache = [AzStateProviders]::Cache
+        $private:AzConfigAtScope = [AzState]::GetAzConfig($Scope)
+        $threadSafeAzState = [System.Collections.Concurrent.ConcurrentDictionary[string, AzState]]::new()
+        $private:AzConfigAtScope.foreach( { Write-Host "$($_.Id)" } )
+        $ParallelJobs = $private:AzConfigAtScope | ForEach-Object -Parallel {
+            Write-Host "AzState discovery [Starting] for [$($_.Id)]"
+            # Import-Module -Name AzureStateManager
+            New-AzState | Out-Null
+            $AzStateCache = $using:AzStateCache
+            $AzStateProvidersCache = $using:AzStateProvidersCache
+            $AzStateObject = [AzState]::InParallel($_, $AzStateProvidersCache, $AzStateCache)
+            $AzStateTracker = $using:threadSafeAzState
+            $AzStateTracker.TryAdd($_, $AzStateObject)
+            Write-Host "AzState discovery [Complete] for [$($_.Id)]"
+        } -ThrottleLimit $AzStateThrottleLimit -AsJob
+        $ParallelJobs | Wait-Job | Receive-Job
+        return $threadSafeAzState.Values
+        # foreach ($private:Config in $private:AzConfigAtScope) {
+        #     $private:FromScope += [AzState]::new($private:Config.Id)
+        # }
+        # return $private:FromScope
+    }
+
     # Static method to show all entries in Cache
     static [AzState[]] ShowCache() {
         return [AzState]::Cache
@@ -810,6 +856,12 @@ class AzState {
         foreach ($private:Id in $private:IdListFromCache) {
             [AzState]::new($private:Id)
         }
+    }
+
+    # Static method to load Cache from input object within parallel jobs
+    static [Void] LoadCache([PSCustomObject]$AzStateCache) {
+        Write-Verbose "Loading Cache from AzStateCache variable (Found)"
+        [AzState]::Cache = $AzStateCache            
     }
 
     # Static method to clear all entries from Cache
