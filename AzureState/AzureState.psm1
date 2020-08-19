@@ -755,7 +755,7 @@ class AzState {
             Write-Error "Unknown content type found in response."
             break
         }
-        if ($private:AzConfig.value.Count -gt 1) {
+        if (($private:AzConfig.value) -and ($private:AzConfig.psobject.properties.count -eq 1)) {
             $private:AzConfigResourceCount = $private:AzConfig.value.Count
             Write-Verbose "GetAzConfig [$Id] contains [$private:AzConfigResourceCount] resources."
             return $private:AzConfig.Value
