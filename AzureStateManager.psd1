@@ -51,9 +51,9 @@ PowerShellVersion = '7.0'
 # ProcessorArchitecture = ''
 
 # Modules that must be imported into the global environment prior to importing this module
-RequiredModules   = @(
-    @("Az.Accounts", @{ ModuleName = "Az.Accounts"; ModuleVersion = "1.9.1" } )
-)
+# RequiredModules   = @(
+#     @("Az.Accounts", @{ ModuleName = "Az.Accounts"; ModuleVersion = "1.9.1" } )
+# )
 
 # Assemblies that must be loaded prior to importing this module
 # RequiredAssemblies = @()
@@ -69,7 +69,7 @@ RequiredModules   = @(
 
 # Modules to import as nested modules of the module specified in RootModule/ModuleToProcess
 NestedModules = @(
-    @("AzureState/AzureState.psm1", @{ ModuleName = "AzureState"; ModuleVersion = "0.0.1" } )
+    'AzureState/AzureState.psm1'
 )
 
 # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
@@ -90,10 +90,7 @@ AliasesToExport = @()
 # DscResourcesToExport = @()
 
 # List of all modules packaged with this module
-ModuleList = @(
-    @("AzureStateManager", @{ ModuleName = "AzureStateManager"; ModuleVersion = "0.0.1" } )
-    @("AzureState", @{ ModuleName = "AzureState"; ModuleVersion = "0.0.1" } )
-)
+# ModuleList = @()
 
 # List of all files packaged with this module
 FileList = @(
@@ -110,10 +107,10 @@ PrivateData = @{
     PSData = @{
 
         # Tags applied to this module. These help with module discovery in online galleries.
-        # Tags = @()
+        Tags = 'Azure','ResourceManager','ARM','State','AzState','AzureState'
 
         # A URL to the license for this module.
-        # LicenseUri = ''
+        LicenseUri = 'https://github.com/krowlandson/AzureStateManager/blob/master/LICENSE'
 
         # A URL to the main website for this project.
         ProjectUri = 'https://github.com/krowlandson/AzureStateManager'
@@ -138,7 +135,7 @@ PrivateData = @{
 } # End of PrivateData hashtable
 
 # HelpInfo URI of this module
-HelpInfoURI = 'https://github.com/krowlandson/AzureStateManager/README.md'
+HelpInfoURI = 'https://github.com/krowlandson/AzureStateManager/blob/master/README.md'
 
 # Default prefix for commands exported from this module. Override the default prefix using Import-Module -Prefix.
 # DefaultCommandPrefix = ''

@@ -57,9 +57,7 @@ PowerShellVersion = '7.0'
 # RequiredAssemblies = @()
 
 # Script files (.ps1) that are run in the caller's environment prior to importing this module.
-# ScriptsToProcess = @(
-#     'AzureState.ps1'
-# )
+# ScriptsToProcess = @()
 
 # Type files (.ps1xml) to be loaded when importing this module
 # TypesToProcess = @()
@@ -86,9 +84,7 @@ AliasesToExport = @()
 # DscResourcesToExport = @()
 
 # List of all modules packaged with this module
-ModuleList = @(
-    @("AzureState", @{ ModuleName = "AzureState"; ModuleVersion = "0.0.1" } )
-)
+# ModuleList = @()
 
 # List of all files packaged with this module
 FileList = @(
