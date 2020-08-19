@@ -576,11 +576,11 @@ class AzState {
         $private:parent = ($this.Parent) ?? ($this.GetParent())
         $private:count = 0
         # Start a loop to find the next parentId from the current parentId
-        while ($private:parent) {
+        while ($private:parent.Id) {
             $private:count ++
             Write-Verbose "Adding Parent [$($private:parent.Id)] ($($private:count))"
             $private:parents += @{ $private:count = $private:parent }
-            $private:parent = $this.GetParent($private:parent)
+            $private:parent = $this.GetParent($private:parent.Id)
         }
         return $private:parents
     }
@@ -594,7 +594,8 @@ class AzState {
             $private:parents += $parent.value
         }
         $this.Parents = $private:parents
-        # Create an ordered path of parent names from the parent IDs in string format
+        # Create an ordered path of parent names from the parent
+        # ID in string format and save to ParentPath attribute
         [String]$private:parentPath = ""
         foreach ($parent in $private:parents.Id) {
             $private:parentPath = $private:parentPath + [AzState]::RegexBeforeLastForwardSlash.Replace($parent, "")
@@ -646,13 +647,12 @@ class AzState {
         switch ($this.Type) {
             "Microsoft.Management/managementGroups" {
                 $private:subscriptions = $this.Children `
-                | Where-Object { $_.type -match "/subscriptions$" } `
-                | Where-Object { $_.properties.parent.id -EQ $this.Id }
+                | Where-Object { $_.type -match "/subscriptions$" }
                 $private:dotTf += "resource `"azurerm_management_group`" `"{0}`" {{" -f $this.Name
                 $private:dotTf += "  display_name = `"{0}`"" -f $this.Name
                 $private:dotTf += ""
-                if ($this.Parent) {
-                    $private:dotTf += "  parent_management_group_id = `"{0}`"" -f $this.Parent
+                if ($this.Parent.Id) {
+                    $private:dotTf += "  parent_management_group_id = `"{0}`"" -f $this.Parent.Id
                     $private:dotTf += ""                    
                 }
                 if ($private:subscriptions) {
