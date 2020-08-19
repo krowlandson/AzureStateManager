@@ -1,9 +1,3 @@
-#########################################
-# Module dependencies and configuration #
-#########################################
-
-using module Az.Accounts
-
 ############################################
 # Custom enum data sets used within module #
 ############################################
@@ -532,21 +526,27 @@ class AzState {
                 $private:parentId = $this.Properties.details.parent.id
                 if ($private:parentId) {
                     $private:parent = [PsCustomObject]@{
-                        Id = $this.Properties.details.parent.id
+                        Id   = $this.Properties.details.parent.id
                         Type = "Microsoft.Management/managementGroups"
                     }
                 }
             }
             "Microsoft.Resources/subscriptions" {
                 $private:managementGroups = [AzState]::FromScope("/providers/Microsoft.Management/managementGroups")
-                $private:searchParent = $private:managementGroups | Where-Object -Property Children -Contains "$($this.Id)"
-                $private:parent = $private:searchParent
+                $private:searchParent = $private:managementGroups | Where-Object { $_.Children.Id -Contains "$($this.Id)" }
+                $private:parent = [AzStateSimple]::new($private:searchParent)
             }
             "Microsoft.Resources/resourceGroups" {
-                $private:parent = [AzState]::RegexExtractSubscriptionId.Match($this.Id).value
+                $private:parent = [PsCustomObject]@{
+                    Id   = [AzState]::RegexExtractSubscriptionId.Match($this.Id).value
+                    Type = "Microsoft.Resources/subscriptions"
+                }
             }
             Default {
-                $private:parent = [AzState]::RegexExtractResourceGroupId.Match($this.Id).value
+                $private:parent = [PsCustomObject]@{
+                    Id   = [AzState]::RegexExtractResourceGroupId.Match($this.Id).value
+                    Type = "Microsoft.Resources/resourceGroups"
+                }
             }
         }
         return [AzStateSimple]::new($private:parent)
