@@ -1,3 +1,13 @@
+###############################################
+# Configure PSScriptAnalyzer rule suppression #
+###############################################
+
+# The following SuppressMessageAttribute entries are used to surpress
+# PSScriptAnalyzer tests against known exceptions as per:
+# https://github.com/powershell/psscriptanalyzer#suppressing-rules
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseUsingScopeModifierInNewRunspaces', '', Justification = 'Using ArgumentList')]
+param ()
+
 ############################################
 # Custom enum data sets used within module #
 ############################################
@@ -420,18 +430,18 @@ class AzState {
         if ($UsingCache) {
             foreach ($property in $this.psobject.Properties.Name) {
                 $this.$property = $PsCustomObject.$property
-            }    
+            }
         }
         else {
-            $this.SetDefaultProperties($PsCustomObject)    
+            $this.SetDefaultProperties($PsCustomObject)
             $this.Initialize()
-        }  
+        }
     }
 
     # Update method used to update existing [AzState] object using the existing Resource Id
     [Void] Update() {
         if ($this.Id) {
-            $this.Update($this.Id)            
+            $this.Update($this.Id)
         }
         else {
             Write-Error "Unable to update AzState. Please set a valid resource Id in the AzState object, or provide as an argument."
@@ -632,7 +642,7 @@ class AzState {
         Write-Verbose "Found [$($private:GetChildrenByType.Count)] Child Resources in scope [$private:ChildrenScope]"
         foreach ($private:ChildByType in $private:GetChildrenByType) {
             Write-Verbose "Found [$($Type)] Child Resource [$($private:ChildByType.Id)]"
-        }        
+        }
         return $private:GetChildrenByType
     }
 
@@ -650,7 +660,7 @@ class AzState {
             }
             $private:LinkedResourceNotSet = $private:Child.Id -notin $this.LinkedResources.Id
             if ($private:LinkedResourceNotSet) {
-                $this.LinkedResources += $private:Child                
+                $this.LinkedResources += $private:Child
             }
         }
     }
@@ -667,7 +677,7 @@ class AzState {
                 $private:dotTf += ""
                 if ($this.Parent.Id) {
                     $private:dotTf += "  parent_management_group_id = `"{0}`"" -f $this.Parent.Id
-                    $private:dotTf += ""                    
+                    $private:dotTf += ""
                 }
                 if ($private:subscriptions) {
                     $private:dotTf += "  subscription_ids = ["
@@ -713,7 +723,7 @@ class AzState {
     [Void] SaveTerraform([String]$Path) {
         # WIP: Requires additional work
         if (-not (Test-Path -Path $Path -PathType Container)) {
-            $this.Terraform() | Out-File -FilePath $Path -Encoding "UTF8" -NoClobber            
+            $this.Terraform() | Out-File -FilePath $Path -Encoding "UTF8" -NoClobber
         }
     }
 
@@ -748,7 +758,7 @@ class AzState {
         Write-Verbose "Resource Path [$private:AzRestMethodPath]"
         return $private:AzRestMethodPath
     }
-    
+
     # Static method to get "Path" value from Id, for use with Invoke-AzRestMethod
     # Relies on the following additional static methods:
     #  -- [AzState]::GetTypeFromId(Id)
@@ -862,7 +872,7 @@ class AzState {
     # Static method to return [Boolean] for Resource in Cache query
     static [Boolean] InCache([String]$Id) {
         if ([AzState]::Cache) {
-            return ([AzState]::Cache).ContainsKey($Id)            
+            return ([AzState]::Cache).ContainsKey($Id)
         }
         else {
             # The following prevents needing to initialize the cache
@@ -913,5 +923,5 @@ class AzState {
     static [Void] ClearCache() {
         [AzState]::InitializeCache()
     }
-    
+
 }
