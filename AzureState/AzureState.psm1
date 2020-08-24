@@ -30,7 +30,6 @@ class AzStateProviders {
     [Release]$Release
 
     # Static properties
-    hidden static [AzStateProviders[]]$Cache
     hidden static [String]$ProvidersApiVersion = "2020-06-01"
 
     # Default empty constructor
@@ -46,18 +45,6 @@ class AzStateProviders {
         $this.Release = $PSCustomObject.Release
     }
 
-    # Static method to check for presence of Type in Cache
-    hidden static [Boolean] InCache([String]$Type) {
-        if ($Type -in [AzStateProviders]::Cache.Type) {
-            Write-Verbose "Resource Type [$Type] found in cache."
-            return $true
-        }
-        else {
-            Write-Verbose "Resource Type [$Type] not found in cache."
-            return $false
-        }
-    }
-
     # Static method to get latest stable Api Version using Type
     static [String] GetApiVersionByType([String]$Type) {
         return [AzStateProviders]::GetApiVersionByType($Type, "stable")
@@ -65,18 +52,66 @@ class AzStateProviders {
 
     # Static method to get Api Version using Type
     static [String] GetApiVersionByType([String]$Type, [Release]$Release) {
-        if (-not [AzStateProviders]::InCache($Type)) {
+        if (-not [AzStateProviders]::InCache($Type, ($Release))) {
             [AzStateProviders]::UpdateCache()
         }
-        $private:AzStateProvidersFromCache = [AzStateProviders]::Cache `
-        | Where-Object -Property Type -EQ $Type `
-        | Where-Object -Property Release -EQ $Release
+        $private:AzStateProvidersFromCache = [AzStateProviders]::SearchCache($Type, $Release)
         return $private:AzStateProvidersFromCache.ApiVersion
     }
 
     # Static method to get Api Params String using Type
     static [String] GetApiParamsByType([String]$Type) {
         return "?api-version={0}" -f [AzStateProviders]::GetApiVersionByType($Type)
+    }
+
+    # Static property to store cache of AzStateProviders using a threadsafe
+    # dictionary variable to allow caching across parallel jobs
+    # https://docs.microsoft.com/en-us/powershell/module/microsoft.powershell.core/foreach-object#example-14--using-thread-safe-variable-references
+    static [System.Collections.Concurrent.ConcurrentDictionary[String, AzStateProviders]]$Cache
+
+    # Static method to show all entries in Cache
+    static [AzStateProviders[]] ShowCache() {
+        return ([AzStateProviders]::Cache).Values
+    }
+
+    # Static method to show all entries in Cache matching the specified release type (latest|stable)
+    static [AzStateProviders[]] ShowCache([Release]$Release) {
+        return ([AzStateProviders]::Cache).Values | Where-Object -Property Release -EQ $Release
+    }
+
+    # Static method to show all entries in Cache matching the specified type using default stable release type
+    static [AzStateProviders[]] SearchCache([String]$Type) {
+        return [AzStateProviders]::SearchCache($Type, "stable")
+    }
+
+    # Static method to show all entries in Cache matching the specified type using the specified release type
+    static [AzStateProviders[]] SearchCache([String]$Type, [Release]$Release) {
+        return [AzStateProviders]::Cache["$Type ($Release)"]
+    }
+
+    # Static method to return [Boolean] for Resource Type in Cache query using default stable release type
+    static [Boolean] InCache([String]$Type) {
+        return [AzStateProviders]::InCache($Type, "stable")
+    }
+
+    # Static method to return [Boolean] for Resource Type in Cache query using the specified release type
+    static [Boolean] InCache([String]$Type, [Release]$Release) {
+        if ([AzStateProviders]::Cache) {
+            $private:InCache = ([AzStateProviders]::Cache).ContainsKey("$Type ($Release)")
+            if ($private:InCache) {
+                Write-Verbose "Resource Type [$Type] ($Release) found in AzStateProviders cache."
+            }
+            else {
+                Write-Verbose "Resource Type [$Type] ($Release) not found in AzStateProviders cache."
+            }
+            return $private:InCache
+        }
+        else {
+            # The following prevents needing to initialize the cache
+            # manually if not exist on first attempt to use
+            [AzStateProviders]::InitializeCache()
+            return $false
+        }
     }
 
     # Static method to update Cache using current Subscription from context
@@ -137,40 +172,30 @@ class AzStateProviders {
             ApiVersion   = "$ApiVersion"
             Release      = "$Release"
         }
-        [AzStateProviders]::Cache += [AzStateProviders]::new($private:AzStateProviderObject)
+        $private:KeyToAdd = "$Provider/$ResourceType ($Release)"
+        $private:ValueToAdd = [AzStateProviders]::new($private:AzStateProviderObject)
+        $private:TryAdd = ([AzStateProviders]::Cache).TryAdd($private:KeyToAdd, $private:ValueToAdd)
+        if ($private:TryAdd) {
+            Write-Verbose "Added Resource Type to AzStateProviders Cache [$private:KeyToAdd]"
+        }
     }
 
-    # Static method to show all entries in Cache
-    static [AzStateProviders[]] ShowCache() {
-        return [AzStateProviders]::Cache
+    # Static method to initialize Cache
+    # Will also reset cache if exists
+    static [Void] InitializeCache() {
+        Write-Verbose "Initializing AzStateProviders cache (Empty)"
+        [AzStateProviders]::Cache = [System.Collections.Concurrent.ConcurrentDictionary[String, AzStateProviders]]::new()
     }
 
-    # Static method to show all entries in Cache matching the specified release type (latest|stable)
-    static [AzStateProviders[]] ShowCache([Release]$Release) {
-        return [AzStateProviders]::Cache | Where-Object -Property Release -EQ $Release
-    }
-
-    # Static method to show all entries in Cache matching the specified type using default stable release type
-    static [AzStateProviders[]] SearchCache([String]$Type) {
-        return [AzStateProviders]::SearchCache($Type, "stable")
-    }
-
-    # Static method to show all entries in Cache matching the specified type using the specified release type
-    static [AzStateProviders[]] SearchCache([String]$Type, [Release]$Release) {
-        return [AzStateProviders]::Cache `
-        | Where-Object -Property Type -EQ $Type `
-        | Where-Object -Property Release -EQ $Release
-    }
-
-    # Static method to load Cache from input object within parallel jobs
-    static [Void] LoadCache([PSCustomObject]$AzStateProvidersCache) {
-        Write-Verbose "Loading Cache from AzStateProvidersCache variable (Found)"
-        [AzState]::Cache = $AzStateProvidersCache            
+    # Static method to initialize Cache from copy of cache stored in input variable
+    static [Void] InitializeCache([System.Collections.Concurrent.ConcurrentDictionary[String, AzStateProviders]]$AzStateProvidersCache) {
+        Write-Verbose "Initializing AzStateProviders Cache (From Copy)"
+        [AzState]::Cache = $AzStateProvidersCache
     }
 
     # Static method to clear all entries from Cache
     static [Void] ClearCache() {
-        [AzStateProviders]::Cache = @()
+        [AzStateProviders]::InitializeCache()
     }
 
 }
@@ -178,10 +203,13 @@ class AzStateProviders {
 class AzStateSimple {
 
     # Public class properties
-    [String]$Id = ""
-    [String]$Type = ""
+    [String]$Id
+    [String]$Type
 
-    AzStateSimple() {}
+    AzStateSimple() {
+        $this.Id = ""
+        $this.Type = ""
+    }
 
     AzStateSimple([PsCustomObject]$PsCustomObject) {
         $this.Id = $PsCustomObject.Id
@@ -201,11 +229,15 @@ class AzStateSimple {
 class AzStatePolicy {
 
     # Public class properties
-    [AzStateSimple[]]$PolicyDefinitions = @()
-    [AzStateSimple[]]$PolicySetDefinitions = @()
-    [AzStateSimple[]]$PolicyAssignments = @()
+    [AzStateSimple[]]$PolicyDefinitions
+    [AzStateSimple[]]$PolicySetDefinitions
+    [AzStateSimple[]]$PolicyAssignments
 
-    AzStatePolicy() {}
+    AzStatePolicy() {
+        $this.PolicyAssignments = @()
+        $this.PolicyDefinitions = @()
+        $this.PolicySetDefinitions = @()
+    }
 
 }
 
@@ -215,9 +247,23 @@ class AzStateIAM {
     [AzStateSimple[]]$RoleDefinitions = @()
     [AzStateSimple[]]$RoleAssignments = @()
 
-    AzStateIAM() {}
+    AzStateIAM() {
+        $this.RoleDefinitions = @()
+        $this.RoleAssignments = @()
+    }
 
 }
+
+# class AzStateCache {
+
+# For future use
+
+#     # Static properties
+#     static [System.Collections.Concurrent.ConcurrentDictionary[String, AzState]]$AzStateCache = [System.Collections.Concurrent.ConcurrentDictionary[String, AzState]]::new()
+#     static [System.Collections.Concurrent.ConcurrentDictionary[String, AzState]]$AzStateProvidersCache = [System.Collections.Concurrent.ConcurrentDictionary[String, AzState]]::new()
+
+
+# }
 
 # AzState class used to create and update new AsOpsState objects
 # This is the primary module class containing all logic for managing AzState for Azure Resources
@@ -232,10 +278,6 @@ class AzState {
     [String]$Provider
     [AzStateIAM]$IAM
     [AzStatePolicy]$Policy
-    # [String[]]$Children
-    # [String[]]$LinkedResources
-    # [String]$Parent
-    # [String[]]$Parents
     [AzStateSimple[]]$Children
     [AzStateSimple[]]$LinkedResources
     [AzStateSimple]$Parent
@@ -243,11 +285,7 @@ class AzState {
     [String]$ParentPath
     [String]$ResourcePath
 
-    # Static properties
-    static [AzState[]]$Cache
-
-    # Hidden class properties
-    # hidden [Boolean]$UsingCache = $false
+    # Hidden static class properties
     hidden static [String[]]$DefaultProperties = "Id", "Type", "Name", "Properties"
 
     # Regex patterns for use within methods
@@ -323,7 +361,7 @@ class AzState {
     # Uses Update() method to auto-populate from Resource Id if resource not found in Cache
     AzState([String]$Id) {
         if ([AzState]::InCache($Id)) {
-            Write-Verbose "Returning AzState from cache for [$Id]"
+            Write-Verbose "New-AzState (FROM CACHE) [$Id]"
             $private:CachedResource = [AzState]::SearchCache($Id)
             $this.Initialize($private:CachedResource, $true)
         }
@@ -331,9 +369,10 @@ class AzState {
             $private:GetAzConfig = [AzState]::GetAzConfig($Id)
             if ($private:GetAzConfig.Count -eq 1) {
                 $this.Initialize($private:GetAzConfig[0], $false)
+                Write-Verbose "New-AzState (FROM API)  [$Id]"
             }
             else {
-                Write-Error "Unable to update multiple items. Please update ID to specific resource instance."
+                Write-Error "Unable to process [$Id]. Found multiple items. Please update ID to specific resource instance or use [AzState]::FromScope() method."
                 break
             }
         }
@@ -369,34 +408,8 @@ class AzState {
         $this.SetParents()
         $this.SetResourcePath()
         # After the state object is initialized, add to the Cache array
-        if ($this.Id -notin ([AzState]::Cache).Id) {
-            Write-Verbose "Adding [$($this.Id)] to cache."
-            [AzState]::Cache += $this
-        }
+        [AzState]::AddToCache($this)
     }
-
-    static [AzState] InParallel([PSCustomObject]$PSCustomObject, [PSCustomObject]$AzStateProvidersCache, [PSCustomObject]$AzStateCache) {
-        [AzStateProviders]::LoadCache($AzStateProvidersCache)
-        [AzState]::LoadCache($AzStateCache)
-        return [AzState]::new($PSCustomObject.Id)
-    }
-
-    # [Void] Initialize([AzState]$AzState) {
-    #     $this.Initialize($AzState, $false)
-    # }
-
-    # [Void] Initialize([AzState]$AzState, [Boolean]$UsingCache) {
-    #     # Using a foreach loop to set all properties dynamically
-    #     if ($UsingCache) {
-    #         foreach ($property in $this.psobject.Properties.Name) {
-    #             $this.$property = $AzState.$property
-    #         }    
-    #     }
-    #     else {
-    #         $this.SetDefaultProperties($AzState)    
-    #         $this.Initialize()
-    #     }  
-    # }
 
     [Void] Initialize([PsCustomObject]$PsCustomObject) {
         $this.Initialize($PsCustomObject, $false)
@@ -414,17 +427,6 @@ class AzState {
             $this.Initialize()
         }  
     }
-
-    # [Void] Initialize([PsCustomObject]$PsCustomObject, [Boolean]$UsingCache) {
-    #     $this.SetDefaultProperties($PsCustomObject)
-    #     # Using a foreach loop to set all properties dynamically
-    #     # foreach ($property in [AzState]::DefaultProperties) {
-    #     #     $this.$property = $PsCustomObject.$property
-    #     # }
-    #     if (-not $UsingCache) {
-    #         $this.Initialize()
-    #     }  
-    # }
 
     # Update method used to update existing [AzState] object using the existing Resource Id
     [Void] Update() {
@@ -660,7 +662,7 @@ class AzState {
             "Microsoft.Management/managementGroups" {
                 $private:subscriptions = $this.Children `
                 | Where-Object { $_.type -match "/subscriptions$" }
-                $private:dotTf += "resource `"azurerm_management_group`" `"{0}`" {{" -f $this.Name
+                $private:dotTf += "resource `"azurerm_management_group`" `"{0}`" {{" -f $this.Id -replace "/", "_"
                 $private:dotTf += "  display_name = `"{0}`"" -f $this.Name
                 $private:dotTf += ""
                 if ($this.Parent.Id) {
@@ -675,6 +677,7 @@ class AzState {
                     $private:dotTf += "  ]"
                 }
                 $private:dotTf += "}"
+                $private:dotTf += ""
             }
             Default {
                 Write-Warning "Resource type [$($this.Type)] not currently supported in method Terraform()"
@@ -790,61 +793,58 @@ class AzState {
     # Static method to support returning multiple AzState objects from defined scope
     # using multiple thread jobs to enable parallel processing
     static [AzState[]] FromScopeParallel([String]$Scope) {
-        # $private:FromScopeParallel = @()
+        # The AzStateThrottleLimit variable can be set to allow
+        # performance tuning based on system resources
         if (-not $AzStateThrottleLimit) {
             $AzStateThrottleLimit = 10
         }
-        # if (-not $AzStateTimeoutSeconds) {
-        #     $AzStateTimeoutSeconds = 60
-        # }
-        $AzStateCache = [AzState]::Cache
-        $AzStateProvidersCache = [AzStateProviders]::Cache
+        Write-Verbose "Setting Throttle Limit to [$AzStateThrottleLimit]"
+        # Get the item(s) to process from the provided Scope value
         $private:AzConfigAtScope = [AzState]::GetAzConfig($Scope)
-        $threadSafeAzState = [System.Collections.Concurrent.ConcurrentDictionary[string, AzState]]::new()
-        $private:AzConfigAtScope.foreach( { Write-Host "$($_.Id)" } )
-        $ParallelJobs = $private:AzConfigAtScope | ForEach-Object -Parallel {
-            Write-Host "AzState discovery [Starting] for [$($_.Id)]"
-            # Import-Module -Name AzureStateManager
-            New-AzState | Out-Null
-            $AzStateCache = $using:AzStateCache
-            $AzStateProvidersCache = $using:AzStateProvidersCache
-            $AzStateObject = [AzState]::InParallel($_, $AzStateProvidersCache, $AzStateCache)
-            $AzStateTracker = $using:threadSafeAzState
-            $AzStateTracker.TryAdd($_, $AzStateObject)
-            Write-Host "AzState discovery [Complete] for [$($_.Id)]"
-        } -ThrottleLimit $AzStateThrottleLimit -AsJob
-        $ParallelJobs | Wait-Job | Receive-Job
-        return $threadSafeAzState.Values
-        # foreach ($private:Config in $private:AzConfigAtScope) {
-        #     $private:FromScope += [AzState]::new($private:Config.Id)
-        # }
-        # return $private:FromScope
+        # Set up and run the parallel processing runspace
+        $ThreadSafeAzState = [System.Collections.Concurrent.ConcurrentDictionary[String, AzState]]::new()
+        $ParallelJobs = $private:AzConfigAtScope.Id | ForEach-Object {
+            Start-ThreadJob -Name $_ `
+            -ThrottleLimit $AzStateThrottleLimit `
+            -ArgumentList $_ `
+            -ScriptBlock {
+                [CmdletBinding()]
+                param ([Parameter()][String]$ScopeId)
+                Write-Host "[$($ScopeId)] AzState discovery [Starting]"
+                $private:AzStateObject = New-AzState -Id $ScopeId
+                $AzStateTracker = $using:threadSafeAzState
+                $AzStateTracker.TryAdd($private:AzStateObject.Id, $private:AzStateObject)
+            }
+        }
+        $ParallelJobs | Receive-Job -Wait -AutoRemoveJob
+        # Finally return the array of AzState values from the threadsafe dictionary
+        return $ThreadSafeAzState.Values
     }
+
+    # Static property to store cache of AzState using a threadsafe
+    # dictionary variable to allow caching across parallel jobs
+    # https://docs.microsoft.com/en-us/powershell/module/microsoft.powershell.core/foreach-object#example-14--using-thread-safe-variable-references
+    static [System.Collections.Concurrent.ConcurrentDictionary[String, AzState]]$Cache
 
     # Static method to show all entries in Cache
     static [AzState[]] ShowCache() {
-        return [AzState]::Cache
+        return ([AzState]::Cache).Values
     }
 
     # Static method to show all entries in Cache matching the specified resource Id
     static [AzState[]] SearchCache([String]$Id) {
-        return [AzState]::Cache | Where-Object -Property Id -EQ $Id
-    }
-
-    # Static method to Initialize Cache using existing cache
-    # Used to improve performance of parallel processing
-    # IMPROVEMENT: Consider including SaveCache and LoadCache
-    # methods to utilise filesystem for storing cache
-    static [Void] InitializeCache([AzState[]]$Cache) {
-        [AzState]::Cache = $Cache
+        return [AzState]::Cache[$Id]
     }
 
     # Static method to return [Boolean] for Resource in Cache query
     static [Boolean] InCache([String]$Id) {
-        if ([AzState]::SearchCache([String]$Id)) {
-            return $true
+        if ([AzState]::Cache) {
+            return ([AzState]::Cache).ContainsKey($Id)            
         }
         else {
+            # The following prevents needing to initialize the cache
+            # manually if not exist on first attempt to use
+            [AzState]::InitializeCache()
             return $false
         }
     }
@@ -858,15 +858,37 @@ class AzState {
         }
     }
 
-    # Static method to load Cache from input object within parallel jobs
-    static [Void] LoadCache([PSCustomObject]$AzStateCache) {
-        Write-Verbose "Loading Cache from AzStateCache variable (Found)"
-        [AzState]::Cache = $AzStateCache            
+    # Static method to add AzState object to Cache
+    static [Void] AddToCache([AzState[]]$AddToCache) {
+        # The following prevents needing to initialize the cache
+        # manually if not exist on first attempt to use
+        if (-not [AzState]::Cache) {
+            [AzState]::InitializeCache()
+        }
+        foreach ($AzState in $AddToCache) {
+            $AddedToCache = [AzState]::Cache.TryAdd($AzState.Id, $AzState)
+            if ($AddedToCache) {
+                Write-Verbose "Added Resource to AzState Cache [$($AzState.Id)]"
+            }
+        }
+    }
+
+    # Static method to initialize Cache
+    # Will also reset cache if exists
+    static [Void] InitializeCache() {
+        Write-Verbose "Initializing AzState cache (Empty)"
+        [AzState]::Cache = [System.Collections.Concurrent.ConcurrentDictionary[String, AzState]]::new()
+    }
+
+    # Static method to initialize Cache from copy of cache stored in input variable
+    static [Void] InitializeCache([System.Collections.Concurrent.ConcurrentDictionary[String, AzState]]$AzStateCache) {
+        Write-Verbose "Initializing AzState Cache (From Copy)"
+        [AzState]::Cache = $AzStateCache
     }
 
     # Static method to clear all entries from Cache
     static [Void] ClearCache() {
-        [AzState]::Cache = @()
+        [AzState]::InitializeCache()
     }
     
 }
