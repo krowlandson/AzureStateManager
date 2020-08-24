@@ -300,6 +300,9 @@ class AzState {
 
     # Regex patterns for use within methods
     hidden static [Regex]$RegexBeforeLastForwardSlash = "(?i)^.*(?=\/)"
+    hidden static [Regex]$RegexQuestionMarksAfterFirst = "(?<=[^\?]+\?[^\?]+)\?"
+    hidden static [Regex]$RegexUriParams = "\?\S+"
+    hidden static [Regex]$RegexRemoveParamsFromUri = "(?<=[^\?]+\?[^\?]+)\?"
     hidden static [Regex]$RegexIsGuid = "[a-z0-9]{8}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{12}"
     hidden static [Regex]$RegexProviderTypeFromId = "(?i)(?<=\/providers\/)(?!.*\/providers\/)[^\/]+\/[\w-]+"
     hidden static [Regex]$RegexIsSubscription = "(?i)(\/subscriptions)(?!\/.*\/)"
@@ -309,58 +312,54 @@ class AzState {
     hidden static [Regex]$RegexExtractResourceGroupId = "(?i)^(\/subscriptions\/)[^\/]{36}(\/resourceGroups\/)[^\/]+((?![^\/])|$)"
 
     # Static method to return list of policy types supported by Resource
-    hidden static [String[]] PolicyResourceTypes($Type) {
+    hidden static [String[]] PolicyPathSuffixes($Type) {
         switch ($Type) {
             { $Type -in "Microsoft.Management/managementGroups", "Microsoft.Resources/subscriptions" } {
-                $private:PolicyResourceTypes = @(
-                    "Microsoft.Authorization/policyDefinitions"
-                    "Microsoft.Authorization/policySetDefinitions"
-                    # "Microsoft.Authorization/policyAssignments"
-                    # "Microsoft.Authorization/roleDefinitions"
-                    # "Microsoft.Authorization/roleAssignments"
+                $private:PolicyPathSuffixes = @(
+                    "/providers/Microsoft.Authorization/policyDefinitions"
+                    "/providers/Microsoft.Authorization/policySetDefinitions"
+                    "/providers/Microsoft.Authorization/policyAssignments?`$filter=atScope()"
                 )
             }
             "Microsoft.Resources/resourceGroups" {
-                $private:PolicyResourceTypes = @(
-                    # "Microsoft.Authorization/policyAssignments"
-                    # "Microsoft.Authorization/roleDefinitions"
-                    # "Microsoft.Authorization/roleAssignments"
+                $private:PolicyPathSuffixes = @(
+                    "/providers/Microsoft.Authorization/policyAssignments?`$filter=atScope()"
                 )
             }
             Default {
-                $private:PolicyResourceTypes = @(
-                    # "Microsoft.Authorization/policyAssignments"
-                    # "Microsoft.Authorization/roleDefinitions"
-                    # "Microsoft.Authorization/roleAssignments"
+                $private:PolicyPathSuffixes = @(
+                    # "/providers/Microsoft.Authorization/policyAssignments?`$filter=atScope()"
+                    # "/providers/Microsoft.Authorization/roleDefinitions"
+                    # "/providers/Microsoft.Authorization/roleAssignments"
                 )
             }
         }
-        return $private:PolicyResourceTypes
+        return $private:PolicyPathSuffixes
     }
 
     # Static method to return list of Access control (IAM) types supported by Resource
-    hidden static [String[]] IamResourceTypes($Type) {
+    hidden static [String[]] IamPathSuffixes($Type) {
         switch ($Type) {
             { $Type -in "Microsoft.Management/managementGroups", "Microsoft.Resources/subscriptions" } {
-                $private:IamResourceTypes = @(
-                    "Microsoft.Authorization/roleDefinitions"
-                    "Microsoft.Authorization/roleAssignments"
+                $private:IamPathSuffixes = @(
+                    "/providers/Microsoft.Authorization/roleDefinitions"
+                    "/providers/Microsoft.Authorization/roleAssignments"
                 )
             }
             "Microsoft.Resources/resourceGroups" {
-                $private:IamResourceTypes = @(
-                    # "Microsoft.Authorization/roleDefinitions"
-                    # "Microsoft.Authorization/roleAssignments"
+                $private:IamPathSuffixes = @(
+                    # "/providers/Microsoft.Authorization/roleDefinitions"
+                    # "/providers/Microsoft.Authorization/roleAssignments"
                 )
             }
             Default {
-                $private:IamResourceTypes = @(
-                    # "Microsoft.Authorization/roleDefinitions"
-                    # "Microsoft.Authorization/roleAssignments"
+                $private:IamPathSuffixes = @(
+                    # "/providers/Microsoft.Authorization/roleDefinitions"
+                    # "/providers/Microsoft.Authorization/roleAssignments"
                 )
             }
         }
-        return $private:IamResourceTypes
+        return $private:IamPathSuffixes
     }
 
     # Default empty constructor
@@ -527,9 +526,9 @@ class AzState {
     # Method to get Policy configuration based on Resource Type of object
     hidden [AzStatePolicy] GetPolicy() {
         $private:AzStatePolicy = [AzStatePolicy]::new()
-        foreach ($private:ChildType in [AzState]::PolicyResourceTypes($this.Type)) {
-            $private:PolicyPath = $this.Id + "/providers/" + $private:ChildType
-            $private:PolicyType = Split-Path $private:ChildType -Leaf
+        foreach ($private:PathSuffix in [AzState]::PolicyPathSuffixes($this.Type)) {
+            $private:PolicyPath = $this.Id + $private:PathSuffix
+            $private:PolicyType = Split-Path ([AzState]::RegexUriParams.Replace($private:PathSuffix, "")) -Leaf
             $private:PolicyItems = [AzState]::GetAzConfig($private:PolicyPath)
             $private:AzStatePolicy.$private:PolicyType = [AzStateSimple]::Convert($private:PolicyItems)
         }
@@ -755,6 +754,9 @@ class AzState {
     #  -- [AzStateProviders]::GetApiParamsByType(Id, Type)
     hidden static [String] GetAzRestMethodPath([String]$Id, [String]$Type) {
         $private:AzRestMethodPath = $Id + [AzStateProviders]::GetApiParamsByType($Type)
+        # The following RegEx replace ensures support for generating
+        # a valid path from a URI containing existing params
+        $private:AzRestMethodPath = [AzState]::RegexQuestionMarksAfterFirst.Replace($private:AzRestMethodPath, "&")
         Write-Verbose "Resource Path [$private:AzRestMethodPath]"
         return $private:AzRestMethodPath
     }
@@ -838,9 +840,9 @@ class AzState {
         $ThreadSafeAzState = [System.Collections.Concurrent.ConcurrentDictionary[String, AzState]]::new()
         $ParallelJobs = $private:AzConfigAtScope.Id | ForEach-Object {
             Start-ThreadJob -Name $_ `
-            -ThrottleLimit $AzStateThrottleLimit `
-            -ArgumentList $_ `
-            -ScriptBlock {
+                -ThrottleLimit $AzStateThrottleLimit `
+                -ArgumentList $_ `
+                -ScriptBlock {
                 [CmdletBinding()]
                 param ([Parameter()][String]$ScopeId)
                 Write-Host "[$($ScopeId)] AzState discovery [Starting]"
