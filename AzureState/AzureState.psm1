@@ -679,6 +679,29 @@ class AzState {
                 $private:dotTf += "}"
                 $private:dotTf += ""
             }
+            "Microsoft.Resources/subscriptions" {
+                $private:dotTf += "data `"azurerm_subscription`" `"{0}`" {{" -f $this.Id -replace "/", "_"
+                $private:dotTf += "  subscription_id = `"{0}`"" -f $this.ExtendedProperties.subscriptionId
+                $private:dotTf += "}"
+                $private:dotTf += ""
+            }
+            "Microsoft.Resources/resourceGroups" {
+                $private:subscriptions = $this.Children `
+                | Where-Object { $_.type -match "/subscriptions$" }
+                $private:dotTf += "resource `"azurerm_resource_group`" `"{0}`" {{" -f $this.Id -replace "/", "_"
+                $private:dotTf += "  name     = `"{0}`"" -f $this.Name
+                $private:dotTf += "  location = `"{0}`"" -f $this.ExtendedProperties.Location
+                if ($this.ExtendedProperties.Tags.psobject.properties.count -ge 1) {
+                    $private:dotTf += ""
+                    $private:dotTf += "  tags = {"
+                    foreach ($Tag in $this.ExtendedProperties.Tags.psobject.properties) {
+                        $private:dotTf += "    `"{0}`" = `"{1}`"" -f $Tag.Name, $Tag.Value
+                    }
+                    $private:dotTf += "  }"
+                }
+                $private:dotTf += "}"
+                $private:dotTf += ""
+            }
             Default {
                 Write-Warning "Resource type [$($this.Type)] not currently supported in method Terraform()"
                 $private:dotTf = $null
