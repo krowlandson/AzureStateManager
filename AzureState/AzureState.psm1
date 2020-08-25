@@ -337,8 +337,6 @@ class AzState {
             Default {
                 $private:PolicyPathSuffixes = @(
                     # "/providers/Microsoft.Authorization/policyAssignments?`$filter=atScope()"
-                    # "/providers/Microsoft.Authorization/roleDefinitions"
-                    # "/providers/Microsoft.Authorization/roleAssignments"
                 )
             }
         }
@@ -351,19 +349,19 @@ class AzState {
             { $Type -in "Microsoft.Management/managementGroups", "Microsoft.Resources/subscriptions" } {
                 $private:IamPathSuffixes = @(
                     "/providers/Microsoft.Authorization/roleDefinitions"
-                    "/providers/Microsoft.Authorization/roleAssignments"
+                    "/providers/Microsoft.Authorization/roleAssignments?`$filter=atScope()"
                 )
             }
             "Microsoft.Resources/resourceGroups" {
                 $private:IamPathSuffixes = @(
                     # "/providers/Microsoft.Authorization/roleDefinitions"
-                    # "/providers/Microsoft.Authorization/roleAssignments"
+                    # "/providers/Microsoft.Authorization/roleAssignments?`$filter=atScope()"
                 )
             }
             Default {
                 $private:IamPathSuffixes = @(
                     # "/providers/Microsoft.Authorization/roleDefinitions"
-                    # "/providers/Microsoft.Authorization/roleAssignments"
+                    # "/providers/Microsoft.Authorization/roleAssignments?`$filter=atScope()"
                 )
             }
         }
@@ -838,6 +836,20 @@ class AzState {
     }
 
     # Static method to support returning multiple AzState objects from defined scope
+    # Uses object returned from scope query to create AzState with optimal performance
+    # Not all resources can use this due to missing properties in scope-level response
+    # (e.g. managementGroups)
+    static [AzState[]] DirectFromScope([String]$Scope) {
+        $private:FromScope = @()
+        $private:AzConfigAtScope = [AzState]::GetAzConfig($Scope)
+        foreach ($private:Config in $private:AzConfigAtScope) {
+            $private:FromScope += [AzState]::new($private:Config)
+        }
+        return $private:FromScope
+    }
+
+    # Static method to support returning multiple AzState objects from defined scope
+    # Uses Id of value to perform full lookup of Resource from ARM
     static [AzState[]] FromScope([String]$Scope) {
         $private:FromScope = @()
         $private:AzConfigAtScope = [AzState]::GetAzConfig($Scope)
