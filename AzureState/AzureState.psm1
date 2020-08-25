@@ -484,7 +484,7 @@ class AzState {
             Default {
                 $this.ExtendedProperties = [PsCustomObject]@{}
                 foreach ($private:Property in $PsCustomObject.psobject.Properties) {
-                    if ($private:Property -notin [AzState]::DefaultProperties) {
+                    if ($private:Property.Name -inotin [AzState]::DefaultProperties) {
                         $this.ExtendedProperties | Add-Member -NotePropertyName $private:Property.Name -NotePropertyValue $private:Property.Value
                     }
                 }
