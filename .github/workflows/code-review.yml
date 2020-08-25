@@ -23,7 +23,6 @@ jobs:
       uses: actions/checkout@v2
 
     - name: Run Super-Linter
-      # Release tag v3.3.0 onwards includes arm-ttk linter
       uses: docker://github/super-linter:v3.8.3
       env:
         # Lint all code on push
