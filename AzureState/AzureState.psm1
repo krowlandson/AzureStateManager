@@ -789,8 +789,8 @@ class AzState {
         $private:AzRestMethodUri = [AzState]::GetAzRestMethodPath($Id)
         if ([AzState]::InRestCache($private:AzRestMethodUri)) {
             $private:SearchRestCache = [AzState]::SearchRestCache($private:AzRestMethodUri)
-            Write-Verbose "GetAzRestMethod (FROM CACHE) [$($private:SearchRestCache.Key)]"
-            $private:PSHttpResponse = $private:SearchRestCache.Value
+            Write-Verbose "GetAzRestMethod (FROM CACHE) [$($private:AzRestMethodUri)]"
+            $private:PSHttpResponse = $private:SearchRestCache
         }
         else {
             Write-Verbose "GetAzRestMethod (FROM API) [$private:AzRestMethodUri]"
@@ -849,20 +849,28 @@ class AzState {
 
     # Static method to support returning multiple AzState objects from defined scope
     # using multiple thread jobs to enable parallel processing
+    # Uses AzStateThrottleLimit variable if set, or default value
     static [AzState[]] FromScopeParallel([String]$Scope) {
         # The AzStateThrottleLimit variable can be set to allow
         # performance tuning based on system resources
-        if (-not $AzStateThrottleLimit) {
-            $AzStateThrottleLimit = 10
+        $private:ThrottleLimit = Get-Variable -Name AzStateThrottleLimit -ErrorAction Ignore
+        if (-not $private:ThrottleLimit) {
+            $private:ThrottleLimit = 4
         }
-        Write-Verbose "Setting Throttle Limit to [$AzStateThrottleLimit]"
+        return [AzState]::FromScopeParallel($Scope, $private:ThrottleLimit)
+    }
+
+    # Static method to support returning multiple AzState objects from defined scope
+    # using multiple thread jobs to enable parallel processing
+    static [AzState[]] FromScopeParallel([String]$Scope, [Int]$ThrottleLimit) {
+        Write-Verbose "Setting Throttle Limit to [$ThrottleLimit]"
         # Get the item(s) to process from the provided Scope value
         $private:AzConfigAtScope = [AzState]::GetAzConfig($Scope)
         # Set up and run the parallel processing runspace
         $ThreadSafeAzState = [System.Collections.Concurrent.ConcurrentDictionary[String, AzState]]::new()
         $ParallelJobs = $private:AzConfigAtScope.Id | ForEach-Object {
             Start-ThreadJob -Name $_ `
-                -ThrottleLimit $AzStateThrottleLimit `
+                -ThrottleLimit $ThrottleLimit `
                 -ArgumentList $_ `
                 -ScriptBlock {
                 [CmdletBinding()]
