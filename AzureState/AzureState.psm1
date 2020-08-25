@@ -264,6 +264,14 @@ class AzStateIAM {
 
 }
 
+class AzStateRestCache {
+
+    # Public class properties
+    [String]$Key
+    [PSCustomObject]$Value
+
+}
+
 # class AzStateCache {
 
 # For future use
@@ -778,11 +786,25 @@ class AzState {
     #       |-- [AzState]::GetAzRestMethodPath(Id, Type)
     #          |-- [AzStateProviders]::GetApiParamsByType(Id, Type)
     hidden static [PsCustomObject] GetAzRestMethod([String]$Id) {
-        $private:PSHttpResponse = Invoke-AzRestMethod -Method GET -Path ([AzState]::GetAzRestMethodPath($Id))
-        if ($private:PSHttpResponse.StatusCode -ne 200) {
-            $private:ErrorBody = ($private:PSHttpResponse.Content | ConvertFrom-Json).error
-            Write-Error "Invalid response from API:`n StatusCode=$($private:PSHttpResponse.StatusCode)`n ErrorCode=$($private:ErrorBody.code)`n ErrorMessage=$($private:ErrorBody.message)"
-            break
+        $private:AzRestMethodUri = [AzState]::GetAzRestMethodPath($Id)
+        if ([AzState]::InRestCache($private:AzRestMethodUri)) {
+            $private:SearchRestCache = [AzState]::SearchRestCache($private:AzRestMethodUri)
+            Write-Verbose "GetAzRestMethod (FROM CACHE) [$($private:SearchRestCache.Key)]"
+            $private:PSHttpResponse = $private:SearchRestCache.Value
+        }
+        else {
+            Write-Verbose "GetAzRestMethod (FROM API) [$private:AzRestMethodUri]"
+            $private:PSHttpResponse = Invoke-AzRestMethod -Method GET -Path $private:AzRestMethodUri
+            if ($private:PSHttpResponse.StatusCode -ne 200) {
+                $private:ErrorBody = ($private:PSHttpResponse.Content | ConvertFrom-Json).error
+                Write-Error "Invalid response from API:`n StatusCode=$($private:PSHttpResponse.StatusCode)`n ErrorCode=$($private:ErrorBody.code)`n ErrorMessage=$($private:ErrorBody.message)"
+                break
+            }
+            $private:AddToRestCache = [AzStateRestCache]@{
+                Key   = $private:AzRestMethodUri
+                Value = $private:PSHttpResponse
+            }
+            [AzState]::AddToRestCache($private:AddToRestCache)
         }
         return $private:PSHttpResponse
     }
@@ -856,10 +878,15 @@ class AzState {
         return $ThreadSafeAzState.Values
     }
 
+    #################
+    # AzState Cache #
+    #################
+
     # Static property to store cache of AzState using a threadsafe
-    # dictionary variable to allow caching across parallel jobs
+    # dictionary variable to allow caching across parallel jobs for
+    # performance improvements when building the AzState hierarchy
     # https://docs.microsoft.com/en-us/powershell/module/microsoft.powershell.core/foreach-object#example-14--using-thread-safe-variable-references
-    static [System.Collections.Concurrent.ConcurrentDictionary[String, AzState]]$Cache
+    hidden static [System.Collections.Concurrent.ConcurrentDictionary[String, AzState]]$Cache
 
     # Static method to show all entries in Cache
     static [AzState[]] ShowCache() {
@@ -867,12 +894,12 @@ class AzState {
     }
 
     # Static method to show all entries in Cache matching the specified resource Id
-    static [AzState[]] SearchCache([String]$Id) {
+    hidden static [AzState[]] SearchCache([String]$Id) {
         return [AzState]::Cache[$Id]
     }
 
     # Static method to return [Boolean] for Resource in Cache query
-    static [Boolean] InCache([String]$Id) {
+    hidden static [Boolean] InCache([String]$Id) {
         if ([AzState]::Cache) {
             return ([AzState]::Cache).ContainsKey($Id)
         }
@@ -885,7 +912,7 @@ class AzState {
     }
 
     # Static method to update all entries in Cache
-    static [Void] UpdateCache() {
+    hidden static [Void] UpdateCache() {
         $private:IdListFromCache = [AzState]::ShowCache().Id
         [AzState]::ClearCache()
         foreach ($private:Id in $private:IdListFromCache) {
@@ -894,7 +921,7 @@ class AzState {
     }
 
     # Static method to add AzState object to Cache
-    static [Void] AddToCache([AzState[]]$AddToCache) {
+    hidden static [Void] AddToCache([AzState[]]$AddToCache) {
         # The following prevents needing to initialize the cache
         # manually if not exist on first attempt to use
         if (-not [AzState]::Cache) {
@@ -910,13 +937,13 @@ class AzState {
 
     # Static method to initialize Cache
     # Will also reset cache if exists
-    static [Void] InitializeCache() {
+    hidden static [Void] InitializeCache() {
         Write-Verbose "Initializing AzState cache (Empty)"
         [AzState]::Cache = [System.Collections.Concurrent.ConcurrentDictionary[String, AzState]]::new()
     }
 
     # Static method to initialize Cache from copy of cache stored in input variable
-    static [Void] InitializeCache([System.Collections.Concurrent.ConcurrentDictionary[String, AzState]]$AzStateCache) {
+    hidden static [Void] InitializeCache([System.Collections.Concurrent.ConcurrentDictionary[String, AzState]]$AzStateCache) {
         Write-Verbose "Initializing AzState Cache (From Copy)"
         [AzState]::Cache = $AzStateCache
     }
@@ -924,6 +951,66 @@ class AzState {
     # Static method to clear all entries from Cache
     static [Void] ClearCache() {
         [AzState]::InitializeCache()
+    }
+
+    ######################
+    # AzRestMethod Cache #
+    ######################
+
+    # Static property to store cache of AzConfig using a threadsafe
+    # dictionary variable to allow caching across parallel jobs for
+    # performance improvements when building the AzState hierarchy
+    # https://docs.microsoft.com/en-us/powershell/module/microsoft.powershell.core/foreach-object#example-14--using-thread-safe-variable-references
+    hidden static [System.Collections.Concurrent.ConcurrentDictionary[String, Object]]$RestCache
+
+    # Static method to show all entries in Rest Cache
+    static [PsCustomObject[]] ShowRestCache() {
+        return ([AzState]::RestCache).Values
+    }
+
+    # Static method to show all entries in Rest Cache matching the specified Uri
+    hidden static [PsCustomObject[]] SearchRestCache([String]$Uri) {
+        return [AzState]::RestCache[$Uri]
+    }
+
+    # Static method to return [Boolean] for Response in Rest Cache query
+    hidden static [Boolean] InRestCache([String]$Uri) {
+        if ([AzState]::RestCache) {
+            return ([AzState]::RestCache).ContainsKey($Uri)
+        }
+        else {
+            # The following prevents needing to initialize the cache
+            # manually if not exist on first attempt to use
+            [AzState]::InitializeRestCache()
+            return $false
+        }
+    }
+
+    # Static method to add Response to Rest Cache
+    hidden static [Void] AddToRestCache([AzStateRestCache[]]$AddToCache) {
+        # The following prevents needing to initialize the cache
+        # manually if not exist on first attempt to use
+        if (-not [AzState]::RestCache) {
+            [AzState]::InitializeRestCache()
+        }
+        foreach ($Response in $AddToCache) {
+            $AddedToCache = [AzState]::RestCache.TryAdd($Response.Key, $Response.Value)
+            if ($AddedToCache) {
+                Write-Verbose "Added API Response to Cache [$($Response.Key)]"
+            }
+        }
+    }
+
+    # Static method to initialize Cache
+    # Will also reset cache if exists
+    hidden static [Void] InitializeRestCache() {
+        Write-Verbose "Initializing Rest cache (Empty)"
+        [AzState]::RestCache = [System.Collections.Concurrent.ConcurrentDictionary[String, Object]]::new()
+    }
+
+    # Static method to clear all entries from Cache
+    static [Void] ClearRestCache() {
+        [AzState]::InitializeRestCache()
     }
 
 }
