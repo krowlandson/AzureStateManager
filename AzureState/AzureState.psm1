@@ -21,11 +21,11 @@ enum Release {
     latest
 }
 
-#####################################
-# Custom classes used within module #
-#####################################
+##########################
+# AzStateProviders Class #
+##########################
 
-# AzStateProviders class is used to create cache of latest API version for all Azure Providers
+# [AzStateProviders] class is used to create cache of latest API version for all Azure Providers
 # This can be used to dynamically retrieve the latest or stable API version in string format
 # Can also output the API version as a param string for use within a Rest API request
 # To minimise the number of Rest API requests needed, this class creates a cache and populates
@@ -210,6 +210,13 @@ class AzStateProviders {
 
 }
 
+#######################
+# AzStateSimple Class #
+#######################
+
+# The [AzStateSimple] class is used to control the creation of a simple object used for storing
+# the ID and Type of Resources linked to the primary Resource within [AzState]
+# We explicitly store the Type to simplify filtering when querying these Resources
 class AzStateSimple {
 
     # Public class properties
@@ -236,6 +243,12 @@ class AzStateSimple {
 
 }
 
+#######################
+# AzStatePolicy Class #
+#######################
+
+# The [AzStatePolicy] class is used to control the creation of an object used for storing
+# the different Policy associations within [AzState]
 class AzStatePolicy {
 
     # Public class properties
@@ -251,6 +264,12 @@ class AzStatePolicy {
 
 }
 
+####################
+# AzStateIAM Class #
+####################
+
+# The [AzStateIAM] class is used to control the creation of an object used for storing
+# the different Access control (IAM) associations within [AzState]
 class AzStateIAM {
 
     # Public class properties
@@ -264,6 +283,12 @@ class AzStateIAM {
 
 }
 
+##########################
+# AzStateRestCache Class #
+##########################
+
+# The [AzStateRestCache] class is used to control the creation of an object used for creating
+# cached copies of results from the GetAzRestMethod method in [AzState]
 class AzStateRestCache {
 
     # Public class properties
@@ -272,19 +297,12 @@ class AzStateRestCache {
 
 }
 
-# class AzStateCache {
+###################
+# [AzState] Class #
+###################
 
-# For future use
-
-#     # Static properties
-#     static [System.Collections.Concurrent.ConcurrentDictionary[String, AzState]]$AzStateCache = [System.Collections.Concurrent.ConcurrentDictionary[String, AzState]]::new()
-#     static [System.Collections.Concurrent.ConcurrentDictionary[String, AzState]]$AzStateProvidersCache = [System.Collections.Concurrent.ConcurrentDictionary[String, AzState]]::new()
-
-
-# }
-
-# AzState class used to create and update new AsOpsState objects
-# This is the primary module class containing all logic for managing AzState for Azure Resources
+# [AzState] class used to create and update new AsOpsState objects
+# This is the primary module class containing all logic for managing [AzState] for Azure Resources
 class AzState {
 
     # Public class properties
@@ -368,6 +386,10 @@ class AzState {
         return $private:IamPathSuffixes
     }
 
+    #----------------------#
+    # Default Constructors #
+    #----------------------#
+
     # Default empty constructor
     AzState() {
     }
@@ -414,6 +436,13 @@ class AzState {
         $this.Initialize()
     }
 
+    #------------------------#
+    # Initialization Method #
+    #------------------------#
+
+    # The initialization methods are use to set additional AzState attributes
+    # which are calculated from the base object properties
+
     [Void] Initialize() {
         # Used to set values on variables which require internal methods
         $this.SetProvider()
@@ -443,6 +472,15 @@ class AzState {
         }
     }
 
+    #----------------#
+    # Update Methods #
+    #----------------#
+
+    # The update method is used to update all AzState attributes
+    # using the provided Id to start discovery
+    # This method is also used for creation of a new AzState
+    # object to avoid duplication of code
+
     # Update method used to update existing [AzState] object using the existing Resource Id
     [Void] Update() {
         if ($this.Id) {
@@ -454,17 +492,22 @@ class AzState {
     }
 
     # Update method used to update existing [AzState] object using the provided Resource Id
-    # IMPROVEMENT - need to investigate how to handle multiple resources in scope of Id
     [Void] Update([String]$Id) {
         $private:GetAzConfig = [AzState]::GetAzConfig($Id)
         if ($private:GetAzConfig.Count -eq 1) {
             $this.Initialize($private:GetAzConfig[0], $false)
         }
         else {
-            Write-Error "Unable to update multiple items. Please update ID to specific resource instance."
+            Write-Error "Unable to update AzState for multiple Resources under ID [$Id]. Please set the ID to a specific Resource ID, or use the FromScope method to create AzState for multiple Resources at the specified scope."
             break
         }
     }
+
+    #----------------#
+    # Hidden Methods #
+    #----------------#
+
+    # The following pool of methods provide the inner workings of the AzState class
 
     # Method to set default properties in AzState from input object
     hidden [Void] SetDefaultProperties([PsCustomObject]$PsCustomObject) {
@@ -670,7 +713,7 @@ class AzState {
         }
     }
 
-    # IMPROVEMENT: Consider moving to new class for [Terraform]
+    # IMPROVEMENT: Consider moving to new class or function for [Terraform]
     hidden [String] Terraform() {
         $private:dotTf = @()
         switch ($this.Type) {
@@ -725,7 +768,7 @@ class AzState {
         return $private:dotTf -join "`n"
     }
 
-    [Void] SaveTerraform([String]$Path) {
+    hidden [Void] SaveTerraform([String]$Path) {
         # WIP: Requires additional work
         if (-not (Test-Path -Path $Path -PathType Container)) {
             $this.Terraform() | Out-File -FilePath $Path -Encoding "UTF8" -NoClobber
@@ -898,9 +941,9 @@ class AzState {
         return $ThreadSafeAzState.Values
     }
 
-    #################
+    #---------------#
     # AzState Cache #
-    #################
+    #---------------#
 
     # Static property to store cache of AzState using a threadsafe
     # dictionary variable to allow caching across parallel jobs for
@@ -973,9 +1016,9 @@ class AzState {
         [AzState]::InitializeCache()
     }
 
-    ######################
+    #--------------------#
     # AzRestMethod Cache #
-    ######################
+    #--------------------#
 
     # Static property to store cache of AzConfig using a threadsafe
     # dictionary variable to allow caching across parallel jobs for
