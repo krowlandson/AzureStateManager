@@ -12,7 +12,8 @@ param ()
 # Custom enum data sets used within module #
 ############################################
 
-enum SkipCache {
+enum CacheMode {
+    UseCache
     SkipCache
 }
 
@@ -399,32 +400,18 @@ class AzState {
     AzState() {
     }
 
-    # Default constructor with Resource Id input
-    # Uses Update() method to auto-populate from Resource Id if resource not found in Cache
+    # Default constructor using Resource Id input
+    # Uses Update() method to auto-populate from Resource Id
+    # Enables UseCache by default
     AzState([String]$Id) {
-        if ([AzState]::InCache($Id)) {
-            Write-Verbose "New-AzState (FROM CACHE) [$Id]"
-            $private:CachedResource = [AzState]::SearchCache($Id)
-            $this.Initialize($private:CachedResource, $true)
-        }
-        else {
-            $private:GetAzConfig = [AzState]::GetAzConfig($Id)
-            if ($private:GetAzConfig.Count -eq 1) {
-                $this.Initialize($private:GetAzConfig[0], $false)
-                Write-Verbose "New-AzState (FROM API)  [$Id]"
-            }
-            else {
-                Write-Error "Unable to process [$Id]. Found multiple items. Please update ID to specific resource instance or use [AzState]::FromScope() method."
-                break
-            }
-        }
+        $this.Update($Id)
     }
 
-    # Default constructor with Resource Id and IgnoreCache input
+    # Default constructor using Resource Id and CacheMode inputs
     # Uses Update() method to auto-populate from Resource Id
-    # Ignores Cache for Resource Id only (parent and child resources still pulled from cache if present)
-    AzState([String]$Id, [SkipCache]$SkipCache) {
-        $this.Update($Id)
+    # Sets UseCache based on provided CacheMode value
+    AzState([String]$Id, [CacheMode]$CacheMode) {
+        $this.Update($Id, $CacheMode)
     }
 
     AzState([PSCustomObject]$PSCustomObject) {
@@ -434,11 +421,64 @@ class AzState {
         $this.Initialize()
     }
 
-    AzState([AzState]$AzState) {
+    AzState([PSCustomObject]$PSCustomObject, [CacheMode]$CacheMode) {
         foreach ($property in [AzState]::DefaultProperties) {
-            $this.$property = $AzState.$property
+            $this.$property = $PSCustomObject.$property
         }
-        $this.Initialize()
+        $this.Initialize($CacheMode)
+    }
+
+    #----------------#
+    # Update Methods #
+    #----------------#
+
+    # The update method is used to update all AzState attributes
+    # using the provided Id to start discovery
+    # This method is also used for creation of a new AzState
+    # object to avoid duplication of code
+
+    # Update method used to update [AzState] object using the existing Id value
+    # Enables UseCache by default
+    [Void] Update() {
+        $this.Update([CacheMode]"UseCache")
+    }
+
+    # Update method used to update [AzState] object using the existing Id value
+    # Sets UseCache based on provided CacheMode value
+    [Void] Update([CacheMode]$CacheMode) {
+        if ($this.Id) {
+            $this.Update($this.Id, $CacheMode)
+        }
+        else {
+            Write-Error "Unable to update AzState. Please set a valid resource Id in the AzState object, or provide as an argument."
+        }
+    }
+
+    # Update method used to update [AzState] object using the specified Id value
+    # Enables UseCache by default
+    [Void] Update([String]$Id) {
+        $this.Update($Id, [CacheMode]"UseCache")
+    }
+
+    # Update method used to update [AzState] object using the specified Id value
+    # Sets UseCache based on provided CacheMode value
+    [Void] Update([String]$Id, [CacheMode]$CacheMode) {
+        if (($CacheMode -eq "UseCache") -and [AzState]::InCache($Id)) {
+            Write-Verbose "New-AzState (FROM CACHE) [$Id]"
+            $private:CachedResource = [AzState]::SearchCache($Id)
+            $this.Initialize($private:CachedResource, $CacheMode, $true)
+        }
+        else {
+            Write-Verbose "New-AzState (FROM API) [$Id]"
+            $private:GetAzConfig = [AzState]::GetAzConfig($Id)
+            if ($private:GetAzConfig.Count -eq 1) {
+                $this.Initialize($private:GetAzConfig[0], $CacheMode, $false)
+            }
+            else {
+                Write-Error "Unable to update AzState for multiple Resources under ID [$Id]. Please set the ID to a specific Resource ID, or use the FromScope method to create AzState for multiple Resources at the specified scope."
+                break
+            }
+        }
     }
 
     #------------------------#
@@ -449,6 +489,10 @@ class AzState {
     # which are calculated from the base object properties
 
     [Void] Initialize() {
+        $this.Initialize([CacheMode]"UseCache")
+    }
+
+    [Void] Initialize([CacheMode]$CacheMode) {
         # Used to set values on variables which require internal methods
         $this.SetProvider()
         $this.SetIAM()
@@ -462,10 +506,18 @@ class AzState {
     }
 
     [Void] Initialize([PsCustomObject]$PsCustomObject) {
-        $this.Initialize($PsCustomObject, $false)
+        $this.Initialize($PsCustomObject, [CacheMode]"UseCache")
     }
 
     [Void] Initialize([PsCustomObject]$PsCustomObject, [Boolean]$UsingCache) {
+        $this.Initialize($PsCustomObject, [CacheMode]"UseCache", $UsingCache)
+    }
+
+    [Void] Initialize([PsCustomObject]$PsCustomObject, [CacheMode]$CacheMode) {
+        $this.Initialize($PsCustomObject, $CacheMode, $false)
+    }
+
+    [Void] Initialize([PsCustomObject]$PsCustomObject, [CacheMode]$CacheMode, [Boolean]$UsingCache) {
         # Using a foreach loop to set all properties dynamically
         if ($UsingCache) {
             foreach ($property in $this.psobject.Properties.Name) {
@@ -474,38 +526,7 @@ class AzState {
         }
         else {
             $this.SetDefaultProperties($PsCustomObject)
-            $this.Initialize()
-        }
-    }
-
-    #----------------#
-    # Update Methods #
-    #----------------#
-
-    # The update method is used to update all AzState attributes
-    # using the provided Id to start discovery
-    # This method is also used for creation of a new AzState
-    # object to avoid duplication of code
-
-    # Update method used to update existing [AzState] object using the existing Resource Id
-    [Void] Update() {
-        if ($this.Id) {
-            $this.Update($this.Id)
-        }
-        else {
-            Write-Error "Unable to update AzState. Please set a valid resource Id in the AzState object, or provide as an argument."
-        }
-    }
-
-    # Update method used to update existing [AzState] object using the provided Resource Id
-    [Void] Update([String]$Id) {
-        $private:GetAzConfig = [AzState]::GetAzConfig($Id)
-        if ($private:GetAzConfig.Count -eq 1) {
-            $this.Initialize($private:GetAzConfig[0], $false)
-        }
-        else {
-            Write-Error "Unable to update AzState for multiple Resources under ID [$Id]. Please set the ID to a specific Resource ID, or use the FromScope method to create AzState for multiple Resources at the specified scope."
-            break
+            $this.Initialize($CacheMode)
         }
     }
 
