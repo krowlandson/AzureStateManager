@@ -295,6 +295,11 @@ class AzStateRestCache {
     [String]$Key
     [PSCustomObject]$Value
 
+    AzStateRestCache([String]$Key, [PSCustomObject]$Value) {
+        $this.Key = $Key
+        $this.Value = $Value
+    }
+
 }
 
 ###################
@@ -372,8 +377,8 @@ class AzState {
             }
             "Microsoft.Resources/resourceGroups" {
                 $private:IamPathSuffixes = @(
-                    # "/providers/Microsoft.Authorization/roleDefinitions"
-                    # "/providers/Microsoft.Authorization/roleAssignments?`$filter=atScope()"
+                    "/providers/Microsoft.Authorization/roleDefinitions"
+                    "/providers/Microsoft.Authorization/roleAssignments?`$filter=atScope()"
                 )
             }
             Default {
@@ -446,6 +451,7 @@ class AzState {
     [Void] Initialize() {
         # Used to set values on variables which require internal methods
         $this.SetProvider()
+        $this.SetIAM()
         $this.SetPolicy()
         $this.SetChildren()
         $this.SetParent()
@@ -572,6 +578,24 @@ class AzState {
         }
     }
 
+    # Method to get IAM configuration based on Resource Type of object
+    hidden [AzStateIAM] GetIAM() {
+        $private:AzStateIAM = [AzStateIAM]::new()
+        foreach ($private:PathSuffix in [AzState]::IamPathSuffixes($this.Type)) {
+            $private:IAMPath = $this.Id + $private:PathSuffix
+            $private:IAMType = Split-Path ([AzState]::RegexUriParams.Replace($private:PathSuffix, "")) -Leaf
+            $private:IAMItems = [AzState]::GetAzConfig($private:IAMPath)
+            $private:AzStateIAM.$private:IAMType = [AzStateSimple]::Convert($private:IAMItems)
+        }
+        return $private:AzStateIAM
+    }
+
+    # Method to set IAM configuration based on Resource Type of object
+    hidden [Void] SetIAM() {
+        $private:IAM = $this.GetIAM()
+        $this.IAM = $private:IAM
+    }
+
     # Method to get Policy configuration based on Resource Type of object
     hidden [AzStatePolicy] GetPolicy() {
         $private:AzStatePolicy = [AzStatePolicy]::new()
@@ -682,35 +706,6 @@ class AzState {
 
     hidden [Void] SetResourcePath() {
         $this.ResourcePath = $this.GetResourcePath().ToString()
-    }
-
-    hidden [AzState[]] GetChildrenByType([String]$Type) {
-        $private:ChildrenScope = $this.Id + "/providers/" + $Type
-        $private:GetChildrenByType = [AzState]::GetAzConfig($private:ChildrenScope)
-        Write-Verbose "Found [$($private:GetChildrenByType.Count)] Child Resources in scope [$private:ChildrenScope]"
-        foreach ($private:ChildByType in $private:GetChildrenByType) {
-            Write-Verbose "Found [$($Type)] Child Resource [$($private:ChildByType.Id)]"
-        }
-        return $private:GetChildrenByType
-    }
-
-    hidden [Void] SetChildrenByType($Type) {
-        # Create array of objects containing required properties from GetChildrenByType() response
-        $private:SetChildrenByType = $this.GetChildrenByType($Type) `
-        | Select-Object -Property name, id, type, properties
-        # Add to $this.Children if not already exists
-        foreach ($private:Child in $private:SetChildrenByType) {
-            $private:ChildNotSet = $private:Child.Id -notin $this.Children.Id
-            $private:ChildInScope = $private:Child.Id -ilike "$($this.Id)/providers/$($Type)"
-            # Need to consider how to handle update scenarios where a child item may need to be removed from Children or LinkedResources
-            if ($private:ChildNotSet -and $private:ChildInScope) {
-                $this.Children += $private:Child
-            }
-            $private:LinkedResourceNotSet = $private:Child.Id -notin $this.LinkedResources.Id
-            if ($private:LinkedResourceNotSet) {
-                $this.LinkedResources += $private:Child
-            }
-        }
     }
 
     # IMPROVEMENT: Consider moving to new class or function for [Terraform]
@@ -841,10 +836,7 @@ class AzState {
                 Write-Error "Invalid response from API:`n StatusCode=$($private:PSHttpResponse.StatusCode)`n ErrorCode=$($private:ErrorBody.code)`n ErrorMessage=$($private:ErrorBody.message)"
                 break
             }
-            $private:AddToRestCache = [AzStateRestCache]@{
-                Key   = $private:AzRestMethodUri
-                Value = $private:PSHttpResponse
-            }
+            $private:AddToRestCache = [AzStateRestCache]::new($private:AzRestMethodUri, $private:PSHttpResponse)
             [AzState]::AddToRestCache($private:AddToRestCache)
         }
         return $private:PSHttpResponse
@@ -1050,6 +1042,8 @@ class AzState {
     }
 
     # Static method to add Response to Rest Cache
+    # Using the custom [AzStateRestCache[]] class for the input type allows multiple
+    # items to be uploaded to the cache at once in a known valid format
     hidden static [Void] AddToRestCache([AzStateRestCache[]]$AddToCache) {
         # The following prevents needing to initialize the cache
         # manually if not exist on first attempt to use
