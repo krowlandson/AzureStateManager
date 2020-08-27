@@ -318,8 +318,7 @@ class AzState {
     [String]$Id
     [String]$Type
     [String]$Name
-    [Object]$Properties
-    [Object]$ExtendedProperties
+    [Object]$Raw
     [String]$Provider
     [AzStateIAM]$IAM
     [AzStatePolicy]$Policy
@@ -331,7 +330,7 @@ class AzState {
     [String]$ResourcePath
 
     # Hidden static class properties
-    hidden static [String[]]$DefaultProperties = "Id", "Type", "Name", "Properties"
+    hidden static [String[]]$DefaultProperties = "Id", "Type", "Name"
     hidden static [CacheMode]$DefaultCacheMode = "UseCache"
     hidden static [Int]$DefaultThrottleLimit = 4
 
@@ -470,12 +469,12 @@ class AzState {
     [Void] Update([String]$Id, [CacheMode]$CacheMode) {
         if (($CacheMode -eq "UseCache") -and [AzState]::InCache($Id)) {
             Write-Verbose "New-AzState (FROM CACHE) [$Id]"
-            $private:CachedResource = [AzState]::SearchCache($Id)
-            $this.Initialize($private:CachedResource, $CacheMode, $true)
+            $private:CachedAzState = [AzState]::SearchCache($Id)
+            $this.Initialize($private:CachedAzState, $CacheMode, $true)
         }
         else {
             Write-Verbose "New-AzState (FROM API) [$Id]"
-            $private:GetAzConfig = [AzState]::GetAzConfig($Id)
+            $private:GetAzConfig = [AzState]::GetAzConfig($Id, [CacheMode]"SkipCache")
             if ($private:GetAzConfig.Count -eq 1) {
                 $this.Initialize($private:GetAzConfig[0], $CacheMode, $false)
             }
@@ -543,25 +542,22 @@ class AzState {
 
     # Method to set default properties in AzState from input object
     hidden [Void] SetDefaultProperties([PsCustomObject]$PsCustomObject) {
+        $this.Raw = $PsCustomObject
+        $this.SetDefaultProperties()
+    }
+
+    hidden [Void] SetDefaultProperties() {
         foreach ($private:Property in [AzState]::DefaultProperties) {
-            $this.$private:Property = $PSCustomObject.$private:Property
+            $this.$private:Property = $this.Raw.$private:Property
         }
-        switch -regex ($PsCustomObject.Id) {
+        switch -regex ($this.Raw.Id) {
             # ([AzState]::RegexProviderTypeFromId).ToString() { <# pending development #> }
             # ([AzState]::RegexIsResourceGroup).ToString() { <# pending development #> }
             ([AzState]::RegexIsSubscription).ToString() {
-                $this.Type = [AzState]::GetTypeFromId($PsCustomObject.Id)
-                $this.Name = $PsCustomObject.displayName
-                $this.ExtendedProperties = $PsCustomObject
+                $this.Type = [AzState]::GetTypeFromId($this.Raw.Id)
+                $this.Name = $this.Raw.displayName
             }
-            Default {
-                $this.ExtendedProperties = [PsCustomObject]@{}
-                foreach ($private:Property in $PsCustomObject.psobject.Properties) {
-                    if ($private:Property.Name -inotin [AzState]::DefaultProperties) {
-                        $this.ExtendedProperties | Add-Member -NotePropertyName $private:Property.Name -NotePropertyValue $private:Property.Value
-                    }
-                }
-            }
+            Default {}
         }
     }
 
@@ -645,10 +641,10 @@ class AzState {
     hidden [AzStateSimple] GetParent() {
         switch ($this.Type) {
             "Microsoft.Management/managementGroups" {
-                $private:parentId = $this.Properties.details.parent.id
+                $private:parentId = $this.Raw.Properties.details.parent.id
                 if ($private:parentId) {
                     $private:parent = [PsCustomObject]@{
-                        Id   = $this.Properties.details.parent.id
+                        Id   = $this.Raw.Properties.details.parent.id
                         Type = "Microsoft.Management/managementGroups"
                     }
                 }
@@ -761,7 +757,7 @@ class AzState {
             }
             "Microsoft.Resources/subscriptions" {
                 $private:dotTf += "data `"azurerm_subscription`" `"{0}`" {{" -f $this.Id -replace "/", "_"
-                $private:dotTf += "  subscription_id = `"{0}`"" -f $this.ExtendedProperties.subscriptionId
+                $private:dotTf += "  subscription_id = `"{0}`"" -f $this.Raw.subscriptionId
                 $private:dotTf += "}"
                 $private:dotTf += ""
             }
@@ -770,11 +766,11 @@ class AzState {
                 | Where-Object { $_.type -match "/subscriptions$" }
                 $private:dotTf += "resource `"azurerm_resource_group`" `"{0}`" {{" -f $this.Id -replace "/", "_"
                 $private:dotTf += "  name     = `"{0}`"" -f $this.Name
-                $private:dotTf += "  location = `"{0}`"" -f $this.ExtendedProperties.Location
-                if ($this.ExtendedProperties.Tags.psobject.properties.count -ge 1) {
+                $private:dotTf += "  location = `"{0}`"" -f $this.Raw.Location
+                if ($this.Raw.Tags.psobject.properties.count -ge 1) {
                     $private:dotTf += ""
                     $private:dotTf += "  tags = {"
-                    foreach ($Tag in $this.ExtendedProperties.Tags.psobject.properties) {
+                    foreach ($Tag in $this.Raw.Tags.psobject.properties) {
                         $private:dotTf += "    `"{0}`" = `"{1}`"" -f $Tag.Name, $Tag.Value
                     }
                     $private:dotTf += "  }"
@@ -947,7 +943,7 @@ class AzState {
 
     # Sets UseCache based on provided CacheMode value
     static [AzState[]] FromScope([String]$Scope, [CacheMode]$CacheMode) {
-            $private:FromScope = @()
+        $private:FromScope = @()
         $private:AzConfigAtScope = [AzState]::GetAzConfig($Scope)
         foreach ($private:Config in $private:AzConfigAtScope) {
             $private:FromScope += [AzState]::new($private:Config.Id, $CacheMode)
@@ -988,7 +984,7 @@ class AzState {
             Start-ThreadJob -Name $_ `
                 -ThrottleLimit $ThrottleLimit `
                 -ArgumentList $_ $CacheMode`
-                -ScriptBlock {
+            -ScriptBlock {
                 [CmdletBinding()]
                 param ([Parameter()][String]$ScopeId, [CacheMode]$CacheMode)
                 Write-Host "[$($ScopeId)] AzState discovery [Starting]"
