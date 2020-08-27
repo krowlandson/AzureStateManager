@@ -17,18 +17,15 @@ function New-AzState {
         [Parameter()]
         [String]$Id,
         [Parameter()]
-        [String]$Type
+        [CacheMode]$CacheMode
     )
 
-    if ($Id -and $Type) {
-        $AzState = New-Object -TypeName AzState -ArgumentList $Id $Type
+    $ArgumentList = @($Id)
+    if ($CacheMode) {
+        $ArgumentList += $CacheMode
     }
-    elseif ($Id) {
-        $AzState = New-Object -TypeName AzState -ArgumentList $Id
-    }
-    else {
-        $AzState = New-Object -TypeName AzState
-    }
+
+    $AzState = New-Object -TypeName AzState -ArgumentList $ArgumentList
 
     return $AzState
 
