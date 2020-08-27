@@ -15,6 +15,9 @@ param ()
 enum CacheMode {
     UseCache
     SkipCache
+    # Future feature in consideration to allow SkipCache
+    # to optionally apply to resource dependencies
+    # SkipCacheRecurse
 }
 
 enum Release {
@@ -329,6 +332,8 @@ class AzState {
 
     # Hidden static class properties
     hidden static [String[]]$DefaultProperties = "Id", "Type", "Name", "Properties"
+    hidden static [CacheMode]$DefaultCacheMode = "UseCache"
+    hidden static [Int]$DefaultThrottleLimit = 4
 
     # Regex patterns for use within methods
     hidden static [Regex]$RegexBeforeLastForwardSlash = "(?i)^.*(?=\/)"
@@ -402,7 +407,7 @@ class AzState {
 
     # Default constructor using Resource Id input
     # Uses Update() method to auto-populate from Resource Id
-    # Enables UseCache by default
+    # Update() sets CacheMode to default value from [AzState]::DefaultCacheMode
     AzState([String]$Id) {
         $this.Update($Id)
     }
@@ -438,9 +443,9 @@ class AzState {
     # object to avoid duplication of code
 
     # Update method used to update [AzState] object using the existing Id value
-    # Enables UseCache by default
+    # Sets CacheMode to default value from [AzState]::DefaultCacheMode
     [Void] Update() {
-        $this.Update([CacheMode]"UseCache")
+        $this.Update([AzState]::DefaultCacheMode)
     }
 
     # Update method used to update [AzState] object using the existing Id value
@@ -455,9 +460,9 @@ class AzState {
     }
 
     # Update method used to update [AzState] object using the specified Id value
-    # Enables UseCache by default
+    # Sets CacheMode to default value from [AzState]::DefaultCacheMode
     [Void] Update([String]$Id) {
-        $this.Update($Id, [CacheMode]"UseCache")
+        $this.Update($Id, [AzState]::DefaultCacheMode)
     }
 
     # Update method used to update [AzState] object using the specified Id value
@@ -489,7 +494,7 @@ class AzState {
     # which are calculated from the base object properties
 
     [Void] Initialize() {
-        $this.Initialize([CacheMode]"UseCache")
+        $this.Initialize([AzState]::DefaultCacheMode)
     }
 
     [Void] Initialize([CacheMode]$CacheMode) {
@@ -506,11 +511,11 @@ class AzState {
     }
 
     [Void] Initialize([PsCustomObject]$PsCustomObject) {
-        $this.Initialize($PsCustomObject, [CacheMode]"UseCache")
+        $this.Initialize($PsCustomObject, [AzState]::DefaultCacheMode)
     }
 
     [Void] Initialize([PsCustomObject]$PsCustomObject, [Boolean]$UsingCache) {
-        $this.Initialize($PsCustomObject, [CacheMode]"UseCache", $UsingCache)
+        $this.Initialize($PsCustomObject, [AzState]::DefaultCacheMode, $UsingCache)
     }
 
     [Void] Initialize([PsCustomObject]$PsCustomObject, [CacheMode]$CacheMode) {
@@ -729,6 +734,7 @@ class AzState {
         $this.ResourcePath = $this.GetResourcePath().ToString()
     }
 
+    # ------------------------------------------------------------ #
     # IMPROVEMENT: Consider moving to new class or function for [Terraform]
     hidden [String] Terraform() {
         $private:dotTf = @()
@@ -791,6 +797,7 @@ class AzState {
         }
     }
 
+    # ------------------------------------------------------------ #
     # Static method to get "Type" value from "Id" using RegEx pattern matching
     # IMPROVEMENT - need to consider situations where an ID may contain multi-level
     # Resource Types within the same provider
@@ -814,6 +821,7 @@ class AzState {
         return $private:TypeFromId
     }
 
+    # ------------------------------------------------------------ #
     # Static method to get "Path" value from Id and Type, for use with Invoke-AzRestMethod
     # Relies on the following additional static methods:
     #  -- [AzStateProviders]::GetApiParamsByType(Id, Type)
@@ -836,15 +844,23 @@ class AzState {
         return [AzState]::GetAzRestMethodPath($Id, $private:Type)
     }
 
+    # ------------------------------------------------------------ #
     # Static method to simplify running Invoke-AzRestMethod using provided Id only
     # Relies on the following additional static methods:
     #  -- [AzState]::GetAzRestMethodPath(Id)
     #    |-- [AzState]::GetTypeFromId(Id)
     #       |-- [AzState]::GetAzRestMethodPath(Id, Type)
     #          |-- [AzStateProviders]::GetApiParamsByType(Id, Type)
+
+    # Sets CacheMode to default value from [AzState]::DefaultCacheMode
     hidden static [PsCustomObject] GetAzRestMethod([String]$Id) {
+        return [AzState]::GetAzRestMethod($Id, [AzState]::DefaultCacheMode)
+    }
+
+    # Sets UseCache based on provided CacheMode value
+    hidden static [PsCustomObject] GetAzRestMethod([String]$Id, [CacheMode]$CacheMode) {
         $private:AzRestMethodUri = [AzState]::GetAzRestMethodPath($Id)
-        if ([AzState]::InRestCache($private:AzRestMethodUri)) {
+        if (($CacheMode -eq "UseCache") -and [AzState]::InRestCache($private:AzRestMethodUri)) {
             $private:SearchRestCache = [AzState]::SearchRestCache($private:AzRestMethodUri)
             Write-Verbose "GetAzRestMethod (FROM CACHE) [$($private:AzRestMethodUri)]"
             $private:PSHttpResponse = $private:SearchRestCache
@@ -863,6 +879,7 @@ class AzState {
         return $private:PSHttpResponse
     }
 
+    # ------------------------------------------------------------ #
     # Static method to return Resource configuration from Azure using provided Id to modify scope
     # Will return multiple items for IDs scoped at a Resource Type level (e.g. "/subscriptions")
     # Will return a single item for IDs scoped at a Resource level (e.g. "/subscriptions/{subscription_id}")
@@ -872,8 +889,15 @@ class AzState {
     #       |-- [AzState]::GetTypeFromId(Id)
     #          |-- [AzState]::GetAzRestMethodPath(Id, Type)
     #             |-- [AzStateProviders]::GetApiParamsByType(Id, Type)
-    hidden static [PSCustomObject[]] GetAzConfig([String]$Id) {
-        $private:AzConfigJson = ([AzState]::GetAzRestMethod($Id)).Content
+
+    # Sets CacheMode to default value from [AzState]::DefaultCacheMode
+    hidden static [PsCustomObject[]] GetAzConfig([String]$Id) {
+        return [AzState]::GetAzConfig($Id, [AzState]::DefaultCacheMode)
+    }
+
+    # Sets UseCache based on provided CacheMode value
+    hidden static [PSCustomObject[]] GetAzConfig([String]$Id, [CacheMode]$CacheMode) {
+        $private:AzConfigJson = ([AzState]::GetAzRestMethod($Id, $CacheMode)).Content
         if ($private:AzConfigJson | Test-Json) {
             $private:AzConfig = $private:AzConfigJson | ConvertFrom-Json
         }
@@ -891,46 +915,70 @@ class AzState {
         }
     }
 
+    # ------------------------------------------------------------ #
     # Static method to support returning multiple AzState objects from defined scope
     # Uses object returned from scope query to create AzState with optimal performance
     # Not all resources can use this due to missing properties in scope-level response
     # (e.g. managementGroups)
+
+    # Sets CacheMode to default value from [AzState]::DefaultCacheMode
     static [AzState[]] DirectFromScope([String]$Scope) {
+        return [AzState]::DirectFromScope($Scope, [AzState]::DefaultCacheMode)
+    }
+
+    # Sets UseCache based on provided CacheMode value
+    static [AzState[]] DirectFromScope([String]$Scope, [CacheMode]$CacheMode) {
         $private:FromScope = @()
         $private:AzConfigAtScope = [AzState]::GetAzConfig($Scope)
         foreach ($private:Config in $private:AzConfigAtScope) {
-            $private:FromScope += [AzState]::new($private:Config)
+            $private:FromScope += [AzState]::new($private:Config, $CacheMode)
         }
         return $private:FromScope
     }
 
+    # ------------------------------------------------------------ #
     # Static method to support returning multiple AzState objects from defined scope
     # Uses Id of value to perform full lookup of Resource from ARM
+
+    # Sets CacheMode to default value from [AzState]::DefaultCacheMode
     static [AzState[]] FromScope([String]$Scope) {
-        $private:FromScope = @()
+        return [AzState]::FromScope($Scope, [AzState]::DefaultCacheMode)
+    }
+
+    # Sets UseCache based on provided CacheMode value
+    static [AzState[]] FromScope([String]$Scope, [CacheMode]$CacheMode) {
+            $private:FromScope = @()
         $private:AzConfigAtScope = [AzState]::GetAzConfig($Scope)
         foreach ($private:Config in $private:AzConfigAtScope) {
-            $private:FromScope += [AzState]::new($private:Config.Id)
+            $private:FromScope += [AzState]::new($private:Config.Id, $CacheMode)
         }
         return $private:FromScope
     }
 
+    # ------------------------------------------------------------ #
     # Static method to support returning multiple AzState objects from defined scope
     # using multiple thread jobs to enable parallel processing
-    # Uses AzStateThrottleLimit variable if set, or default value
+
+    # Sets CacheMode to default value from [AzState]::DefaultCacheMode
     static [AzState[]] FromScopeParallel([String]$Scope) {
+        return [AzState]::FromScopeParallel($Scope, [AzState]::DefaultCacheMode)
+    }
+
+    # Sets UseCache based on provided CacheMode value
+    # Uses AzStateThrottleLimit variable if set, or default value
+    static [AzState[]] FromScopeParallel([String]$Scope, [CacheMode]$CacheMode) {
         # The AzStateThrottleLimit variable can be set to allow
         # performance tuning based on system resources
         $private:ThrottleLimit = Get-Variable -Name AzStateThrottleLimit -ErrorAction Ignore
         if (-not $private:ThrottleLimit) {
-            $private:ThrottleLimit = 4
+            $private:ThrottleLimit = [AzState]::DefaultThrottleLimit
         }
-        return [AzState]::FromScopeParallel($Scope, $private:ThrottleLimit)
+        return [AzState]::FromScopeParallel($Scope, $private:ThrottleLimit, $CacheMode)
     }
 
     # Static method to support returning multiple AzState objects from defined scope
     # using multiple thread jobs to enable parallel processing
-    static [AzState[]] FromScopeParallel([String]$Scope, [Int]$ThrottleLimit) {
+    static [AzState[]] FromScopeParallel([String]$Scope, [Int]$ThrottleLimit, [CacheMode]$CacheMode) {
         Write-Verbose "Setting Throttle Limit to [$ThrottleLimit]"
         # Get the item(s) to process from the provided Scope value
         $private:AzConfigAtScope = [AzState]::GetAzConfig($Scope)
@@ -939,12 +987,12 @@ class AzState {
         $ParallelJobs = $private:AzConfigAtScope.Id | ForEach-Object {
             Start-ThreadJob -Name $_ `
                 -ThrottleLimit $ThrottleLimit `
-                -ArgumentList $_ `
+                -ArgumentList $_ $CacheMode`
                 -ScriptBlock {
                 [CmdletBinding()]
-                param ([Parameter()][String]$ScopeId)
+                param ([Parameter()][String]$ScopeId, [CacheMode]$CacheMode)
                 Write-Host "[$($ScopeId)] AzState discovery [Starting]"
-                $private:AzStateObject = New-AzState -Id $ScopeId
+                $private:AzStateObject = New-AzState -Id $ScopeId -CacheMode $CacheMode
                 $AzStateTracker = $using:threadSafeAzState
                 $AzStateTracker.TryAdd($private:AzStateObject.Id, $private:AzStateObject)
             }
