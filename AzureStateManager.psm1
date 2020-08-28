@@ -1,3 +1,12 @@
+############################################
+# Custom enum data sets used within module #
+############################################
+
+enum CacheMode {
+    UseCache
+    SkipCache
+}
+
 #########################################
 # Module dependencies and configuration #
 #########################################
