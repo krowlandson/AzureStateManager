@@ -1,3 +1,12 @@
+############################################
+# Custom enum data sets used within module #
+############################################
+
+enum CacheMode {
+    UseCache
+    SkipCache
+}
+
 #######################
 # Function definition #
 #######################
@@ -20,12 +29,17 @@ function New-AzState {
         [CacheMode]$CacheMode
     )
 
-    $ArgumentList = @($Id)
+    $ArgumentList = @{}
+    if ($Id) {
+        $ArgumentList = @{
+            ArgumentList = [Object[]]$Id
+        }
+    }
     if ($CacheMode) {
-        $ArgumentList += $CacheMode
+        $ArgumentList.ArgumentList += $CacheMode
     }
 
-    $AzState = New-Object -TypeName AzState -ArgumentList $ArgumentList
+    $AzState = New-Object -TypeName AzState @ArgumentList
 
     return $AzState
 
