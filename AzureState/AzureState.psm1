@@ -419,17 +419,11 @@ class AzState {
     }
 
     AzState([PSCustomObject]$PSCustomObject) {
-        foreach ($property in [AzState]::DefaultProperties) {
-            $this.$property = $PSCustomObject.$property
-        }
-        $this.Initialize()
+        $this.Initialize($PSCustomObject)
     }
 
     AzState([PSCustomObject]$PSCustomObject, [CacheMode]$CacheMode) {
-        foreach ($property in [AzState]::DefaultProperties) {
-            $this.$property = $PSCustomObject.$property
-        }
-        $this.Initialize($CacheMode)
+        $this.Initialize($PSCustomObject, $CacheMode)
     }
 
     #----------------#
@@ -998,16 +992,17 @@ class AzState {
             Write-Verbose "[FromScope] processing [$private:Id]"
             $private:AzConfigAtScope += [AzState]::GetAzConfig($private:Id, $CacheMode)
         }
+        $private:AzConfigAtScopeCount = $private:AzConfigAtScope.Count
         # The following optimises processing by auto-disabling parallel thread
         # jobs when only 1 result needs processing in AzConfigAtScope
-        if (($ThrottleLimit -gt 1) -and ($private:AzConfigAtScope.Count -eq 1)) {
+        if (($ThrottleLimit -gt 1) -and ($private:AzConfigAtScopeCount -eq 1)) {
             Write-Verbose "[FromScope] Auto-disabling parallel processing as only [1] result found in scope"
             $ThrottleLimit = 1
         }
         switch ($ThrottleLimit) {
             0 {
                 # Converts all objects directly from AzConfig to AzState
-                Write-Verbose "[FromScope] running in [direct] mode"
+                Write-Verbose "[FromScope] running in [direct] mode to process [$private:AzConfigAtScopeCount] resources"
                 $private:AzConfigAtScope | ForEach-Object {
                     Write-Verbose "[FromScope] generating AzState for [$($_.Id)]"
                     $private:FromScope += [AzState]::new($_, $CacheMode)
@@ -1015,7 +1010,7 @@ class AzState {
             }
             1 {
                 # Generates AzState object from each Id within scope
-                Write-Verbose "[FromScope] running in [single] mode"
+                Write-Verbose "[FromScope] running in [single] mode to process [$private:AzConfigAtScopeCount] resources"
                 $private:AzConfigAtScope.Id | ForEach-Object {
                     Write-Verbose "[FromScope] generating AzState for [$_]"
                     $private:FromScope += [AzState]::new($_, $CacheMode)
@@ -1024,7 +1019,7 @@ class AzState {
             Default {
                 # Generates AzState object from each Id within scope using ThrottleLimit
                 # value to determine the maximum number of parallel threads to use
-                Write-Verbose "[FromScope] running in [parallel] mode with maximum [$ThrottleLimit] threads to process [$($private:AzConfigAtScope.Id.Count)] resources"
+                Write-Verbose "[FromScope] running in [parallel] mode with maximum [$ThrottleLimit] threads to process [$private:AzConfigAtScopeCount] resources"
                 # Set up and run the parallel processing runspace
                 $ThreadSafeAzState = [System.Collections.Concurrent.ConcurrentDictionary[String, AzState]]::new()
                 $ParallelJobs = $private:AzConfigAtScope.Id | ForEach-Object {
