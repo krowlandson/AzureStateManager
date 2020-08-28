@@ -536,7 +536,13 @@ class AzState {
 
     # Method to set default properties in AzState from input object
     hidden [Void] SetDefaultProperties([PsCustomObject]$PsCustomObject) {
-        $this.Raw = $PsCustomObject
+        if ($PsCustomObject.Raw) {
+            # This is to catch an input PsCustomObject which is already an AzState object
+            $this.Raw = $PsCustomObject.Raw            
+        }
+        else {
+            $this.Raw = $PsCustomObject
+        }
         $this.SetDefaultProperties()
     }
 
