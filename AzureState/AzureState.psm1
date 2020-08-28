@@ -413,7 +413,7 @@ class AzState {
 
     # Default constructor using Resource Id and CacheMode inputs
     # Uses Update() method to auto-populate from Resource Id
-    # Sets UseCache based on provided CacheMode value
+    # Sets UseCache to specified value
     AzState([String]$Id, [CacheMode]$CacheMode) {
         $this.Update($Id, $CacheMode)
     }
@@ -448,7 +448,7 @@ class AzState {
     }
 
     # Update method used to update [AzState] object using the existing Id value
-    # Sets UseCache based on provided CacheMode value
+    # Sets UseCache to specified value
     [Void] Update([CacheMode]$CacheMode) {
         if ($this.Id) {
             $this.Update($this.Id, $CacheMode)
@@ -465,7 +465,7 @@ class AzState {
     }
 
     # Update method used to update [AzState] object using the specified Id value
-    # Sets UseCache based on provided CacheMode value
+    # Sets UseCache to specified value
     [Void] Update([String]$Id, [CacheMode]$CacheMode) {
         if (($CacheMode -eq "UseCache") -and [AzState]::InCache($Id)) {
             Write-Verbose "New-AzState (FROM CACHE) [$Id]"
@@ -853,7 +853,7 @@ class AzState {
         return [AzState]::GetAzRestMethod($Id, [AzState]::DefaultCacheMode)
     }
 
-    # Sets UseCache based on provided CacheMode value
+    # Sets UseCache to specified value
     hidden static [PsCustomObject] GetAzRestMethod([String]$Id, [CacheMode]$CacheMode) {
         $private:AzRestMethodUri = [AzState]::GetAzRestMethodPath($Id)
         if (($CacheMode -eq "UseCache") -and [AzState]::InRestCache($private:AzRestMethodUri)) {
@@ -891,7 +891,7 @@ class AzState {
         return [AzState]::GetAzConfig($Id, [AzState]::DefaultCacheMode)
     }
 
-    # Sets UseCache based on provided CacheMode value
+    # Sets UseCache to specified value
     hidden static [PSCustomObject[]] GetAzConfig([String]$Id, [CacheMode]$CacheMode) {
         $private:AzConfigJson = ([AzState]::GetAzRestMethod($Id, $CacheMode)).Content
         if ($private:AzConfigJson | Test-Json) {
@@ -912,90 +912,140 @@ class AzState {
     }
 
     # ------------------------------------------------------------ #
-    # Static method to support returning multiple AzState objects from defined scope
+    # Static methods to support returning multiple AzState objects from defined scope
     # Uses object returned from scope query to create AzState with optimal performance
     # Not all resources can use this due to missing properties in scope-level response
     # (e.g. managementGroups)
 
+    # Sets ThrottleLimit to 0
     # Sets CacheMode to default value from [AzState]::DefaultCacheMode
-    static [AzState[]] DirectFromScope([String]$Scope) {
-        return [AzState]::DirectFromScope($Scope, [AzState]::DefaultCacheMode)
+    static [AzState[]] DirectFromScope([String[]]$Scope) {
+        return [AzState]::FromScope($Scope, 0, [AzState]::DefaultCacheMode)
     }
 
-    # Sets UseCache based on provided CacheMode value
-    static [AzState[]] DirectFromScope([String]$Scope, [CacheMode]$CacheMode) {
-        $private:FromScope = @()
-        $private:AzConfigAtScope = [AzState]::GetAzConfig($Scope)
-        foreach ($private:Config in $private:AzConfigAtScope) {
-            $private:FromScope += [AzState]::new($private:Config, $CacheMode)
-        }
-        return $private:FromScope
+    # Sets ThrottleLimit to 0
+    # Sets CacheMode to specified value
+    static [AzState[]] DirectFromScope([String[]]$Scope, [CacheMode]$CacheMode) {
+        return [AzState]::FromScope($Scope, 0, $CacheMode)
     }
 
     # ------------------------------------------------------------ #
-    # Static method to support returning multiple AzState objects from defined scope
-    # Uses Id of value to perform full lookup of Resource from ARM
+    # Static methods to support returning multiple AzState objects from defined scope
+    # Uses Id of value to perform full lookup of Resource from ARM Rest API
 
+    # Sets ThrottleLimit to 1
     # Sets CacheMode to default value from [AzState]::DefaultCacheMode
-    static [AzState[]] FromScope([String]$Scope) {
-        return [AzState]::FromScope($Scope, [AzState]::DefaultCacheMode)
+    static [AzState[]] FromScope([String[]]$Scope) {
+        return [AzState]::FromScope($Scope, 1, [AzState]::DefaultCacheMode)
     }
 
-    # Sets UseCache based on provided CacheMode value
-    static [AzState[]] FromScope([String]$Scope, [CacheMode]$CacheMode) {
-        $private:FromScope = @()
-        $private:AzConfigAtScope = [AzState]::GetAzConfig($Scope)
-        foreach ($private:Config in $private:AzConfigAtScope) {
-            $private:FromScope += [AzState]::new($private:Config.Id, $CacheMode)
-        }
-        return $private:FromScope
+    # Sets ThrottleLimit to 1
+    # Sets CacheMode to specified value
+    static [AzState[]] FromScope([String[]]$Scope, [CacheMode]$CacheMode) {
+        return [AzState]::FromScope($Scope, 1, $CacheMode)
     }
 
     # ------------------------------------------------------------ #
-    # Static method to support returning multiple AzState objects from defined scope
+    # Static methods to support returning multiple AzState objects from defined scope
     # using multiple thread jobs to enable parallel processing
+    # Supports multiple input IDs to enable parallel processing across multiple
+    # items not grouped under a single scope ID
 
     # Sets CacheMode to default value from [AzState]::DefaultCacheMode
-    static [AzState[]] FromScopeParallel([String]$Scope) {
+    static [AzState[]] FromScopeParallel([String[]]$Scope) {
         return [AzState]::FromScopeParallel($Scope, [AzState]::DefaultCacheMode)
     }
 
-    # Sets UseCache based on provided CacheMode value
-    # Uses AzStateThrottleLimit variable if set, or default value
-    static [AzState[]] FromScopeParallel([String]$Scope, [CacheMode]$CacheMode) {
+    # Sets ThrottleLimit to value based on either AzStateThrottleLimit variable
+    # (if present) or the default value set by [AzState]::DefaultThrottleLimit
+    # Sets CacheMode to specified value
+    static [AzState[]] FromScopeParallel([String[]]$Scope, [CacheMode]$CacheMode) {
         # The AzStateThrottleLimit variable can be set to allow
         # performance tuning based on system resources
         $private:ThrottleLimit = Get-Variable -Name AzStateThrottleLimit -ErrorAction Ignore
         if (-not $private:ThrottleLimit) {
             $private:ThrottleLimit = [AzState]::DefaultThrottleLimit
         }
-        return [AzState]::FromScopeParallel($Scope, $private:ThrottleLimit, $CacheMode)
+        return [AzState]::FromScope($Scope, $private:ThrottleLimit, $CacheMode)
     }
 
+    # Sets ThrottleLimit to specified value
+    # Sets CacheMode to default value from [AzState]::DefaultCacheMode
+    static [AzState[]] FromScopeParallel([String[]]$Scope, [Int]$ThrottleLimit) {
+        return [AzState]::FromScope($Scope, $ThrottleLimit, [AzState]::DefaultCacheMode)
+    }
+
+    # Sets ThrottleLimit to specified value
+    # Sets CacheMode to specified value
+    static [AzState[]] FromScopeParallel([String[]]$Scope, [Int]$ThrottleLimit, [CacheMode]$CacheMode) {
+        return [AzState]::FromScope($Scope, $ThrottleLimit, $CacheMode)
+    }
+
+    # ------------------------------------------------------------ #
     # Static method to support returning multiple AzState objects from defined scope
-    # using multiple thread jobs to enable parallel processing
-    static [AzState[]] FromScopeParallel([String]$Scope, [Int]$ThrottleLimit, [CacheMode]$CacheMode) {
-        Write-Verbose "Setting Throttle Limit to [$ThrottleLimit]"
-        # Get the item(s) to process from the provided Scope value
-        $private:AzConfigAtScope = [AzState]::GetAzConfig($Scope)
-        # Set up and run the parallel processing runspace
-        $ThreadSafeAzState = [System.Collections.Concurrent.ConcurrentDictionary[String, AzState]]::new()
-        $ParallelJobs = $private:AzConfigAtScope.Id | ForEach-Object {
-            Start-ThreadJob -Name $_ `
-                -ThrottleLimit $ThrottleLimit `
-                -ArgumentList $_ $CacheMode`
-            -ScriptBlock {
-                [CmdletBinding()]
-                param ([Parameter()][String]$ScopeId, [CacheMode]$CacheMode)
-                Write-Host "[$($ScopeId)] AzState discovery [Starting]"
-                $private:AzStateObject = New-AzState -Id $ScopeId -CacheMode $CacheMode
-                $AzStateTracker = $using:threadSafeAzState
-                $AzStateTracker.TryAdd($private:AzStateObject.Id, $private:AzStateObject)
+    # Runs in 3 modes:
+    #   1. Direct   : Supports the DirectFromScope method
+    #   2. Single   : Supports the FromScope method
+    #   3. Parallel : Supports the FromScopeParallel method
+    # Sets ThrottleLimit to specified value
+    # Sets CacheMode to specified value
+    static [AzState[]] FromScope([String[]]$Scope, [Int]$ThrottleLimit, [CacheMode]$CacheMode) {
+        Write-Verbose "[FromScope] initialized with CacheMode [$CacheMode]"
+        $private:AzConfigAtScope = @()
+        $private:FromScope = @()
+        # Get AzConfig for all scope items ready to process
+        foreach ($private:Id in $Scope) {
+            Write-Verbose "[FromScope] processing [$private:Id]"
+            $private:AzConfigAtScope += [AzState]::GetAzConfig($private:Id, $CacheMode)
+        }
+        # The following optimises processing by auto-disabling parallel thread
+        # jobs when only 1 result needs processing in AzConfigAtScope
+        if (($ThrottleLimit -gt 1) -and ($private:AzConfigAtScope.Count -eq 1)) {
+            Write-Verbose "[FromScope] Auto-disabling parallel processing as only [1] result found in scope"
+            $ThrottleLimit = 1
+        }
+        switch ($ThrottleLimit) {
+            0 {
+                # Converts all objects directly from AzConfig to AzState
+                Write-Verbose "[FromScope] running in [direct] mode"
+                $private:AzConfigAtScope | ForEach-Object {
+                    Write-Verbose "[FromScope] generating AzState for [$($_.Id)]"
+                    $private:FromScope += [AzState]::new($_, $CacheMode)
+                }
+            }
+            1 {
+                # Generates AzState object from each Id within scope
+                Write-Verbose "[FromScope] running in [single] mode"
+                $private:AzConfigAtScope.Id | ForEach-Object {
+                    Write-Verbose "[FromScope] generating AzState for [$_]"
+                    $private:FromScope += [AzState]::new($_, $CacheMode)
+                }
+            }
+            Default {
+                # Generates AzState object from each Id within scope using ThrottleLimit
+                # value to determine the maximum number of parallel threads to use
+                Write-Verbose "[FromScope] running in [parallel] mode with maximum [$ThrottleLimit] threads to process [$($private:AzConfigAtScope.Id.Count)] resources"
+                # Set up and run the parallel processing runspace
+                $ThreadSafeAzState = [System.Collections.Concurrent.ConcurrentDictionary[String, AzState]]::new()
+                $ParallelJobs = $private:AzConfigAtScope.Id | ForEach-Object {
+                    Write-Verbose "[FromScope] starting thread job for [$_]"
+                    Start-ThreadJob -Name $_ `
+                        -ThrottleLimit $ThrottleLimit `
+                        -ArgumentList $_, $CacheMode `
+                        -ScriptBlock {
+                        param ([Parameter()][String]$ScopeId, $CacheMode)
+                        Write-Host "[FromScope] generating AzState for [$ScopeId]"
+                        $private:AzStateObject = New-AzState -Id $ScopeId -CacheMode $CacheMode
+                        $AzStateTracker = $using:ThreadSafeAzState
+                        $AzStateTracker.TryAdd($private:AzStateObject.Id, $private:AzStateObject)
+                    }
+                }
+                $ParallelJobs | Receive-Job -Wait -AutoRemoveJob
+                # Finally return the array of AzState values from the threadsafe dictionary
+                $private:FromScope = $ThreadSafeAzState.Values
             }
         }
-        $ParallelJobs | Receive-Job -Wait -AutoRemoveJob
-        # Finally return the array of AzState values from the threadsafe dictionary
-        return $ThreadSafeAzState.Values
+        return $private:FromScope
     }
 
     #---------------#
