@@ -346,6 +346,9 @@ class AzState {
     hidden static [Regex]$RegexIsResource = "(?i)(\/resources)(?!\/.*\/)"
     hidden static [Regex]$RegexExtractSubscriptionId = "(?i)^(\/subscriptions\/)[^\/]{36}((?![^\/])|$)"
     hidden static [Regex]$RegexExtractResourceGroupId = "(?i)^(\/subscriptions\/)[^\/]{36}(\/resourceGroups\/)[^\/]+((?![^\/])|$)"
+    hidden static [Regex]$RegexSubscriptionTypes = "(?i)^(Microsoft.)(Management\/managementGroups|Resources)\/(subscriptions)$"
+    hidden static [Regex]$RegexIAMTypes = "(?i)^(Microsoft.Authorization\/role)(Assignments|Definitions)$"
+    hidden static [Regex]$RegexPolicyTypes = "(?i)^(Microsoft.Authorization\/policy)(Assignments|Definitions|SetDefinitions)$"
 
     # Static method to return list of policy types supported by Resource
     hidden static [String[]] PolicyPathSuffixes($Type) {
@@ -538,7 +541,7 @@ class AzState {
     hidden [Void] SetDefaultProperties([PsCustomObject]$PsCustomObject) {
         if ($PsCustomObject.Raw) {
             # This is to catch an input PsCustomObject which is already an AzState object
-            $this.Raw = $PsCustomObject.Raw            
+            $this.Raw = $PsCustomObject.Raw
         }
         else {
             $this.Raw = $PsCustomObject
@@ -650,7 +653,7 @@ class AzState {
                 }
             }
             "Microsoft.Resources/subscriptions" {
-                $private:managementGroups = [AzState]::FromScope("/providers/Microsoft.Management/managementGroups")
+                $private:managementGroups = [AzState]::FromScopeParallel("/providers/Microsoft.Management/managementGroups", 2)
                 $private:searchParent = $private:managementGroups | Where-Object { $_.Children.Id -Contains "$($this.Id)" }
                 $private:parent = [AzStateSimple]::new($private:searchParent)
             }
@@ -1027,8 +1030,8 @@ class AzState {
                 # value to determine the maximum number of parallel threads to use
                 Write-Verbose "[FromScope] running in [parallel] mode with maximum [$ThrottleLimit] threads to process [$private:AzConfigAtScopeCount] resources"
                 # Set up and run the parallel processing runspace
-                $ThreadSafeAzState = [System.Collections.Concurrent.ConcurrentDictionary[String, AzState]]::new()
-                $ParallelJobs = $private:AzConfigAtScope.Id | ForEach-Object {
+                $FromScopeThreadSafeAzState = [System.Collections.Concurrent.ConcurrentDictionary[String, AzState]]::new()
+                $FromScopeJobs = $private:AzConfigAtScope.Id | ForEach-Object {
                     Write-Verbose "[FromScope] starting thread job for [$_]"
                     Start-ThreadJob -Name $_ `
                         -ThrottleLimit $ThrottleLimit `
@@ -1037,16 +1040,137 @@ class AzState {
                         param ([Parameter()][String]$ScopeId, $CacheMode)
                         Write-Host "[FromScope] generating AzState for [$ScopeId]"
                         $private:AzStateObject = New-AzState -Id $ScopeId -CacheMode $CacheMode
-                        $AzStateTracker = $using:ThreadSafeAzState
-                        $AzStateTracker.TryAdd($private:AzStateObject.Id, $private:AzStateObject)
+                        $FromScopeAzStateTracker = $using:FromScopeThreadSafeAzState
+                        $FromScopeAzStateTracker.TryAdd($private:AzStateObject.Id, $private:AzStateObject)
                     }
                 }
-                $ParallelJobs | Receive-Job -Wait -AutoRemoveJob
+                $FromScopeJobs | Receive-Job -Wait -AutoRemoveJob
                 # Finally return the array of AzState values from the threadsafe dictionary
-                $private:FromScope = $ThreadSafeAzState.Values
+                $private:FromScope = $FromScopeThreadSafeAzState.Values
             }
         }
         return $private:FromScope
+    }
+
+    # ------------------------------------------------------------ #
+    # Static methods to support returning multiple AzState objects from input IDs
+    # using multiple thread jobs to enable parallel processing
+
+    # Sets CacheMode to default value from [AzState]::DefaultCacheMode
+    static [AzState[]] FromIds([String[]]$Ids) {
+        return [AzState]::FromIds($Ids, [AzState]::DefaultCacheMode)
+    }
+
+    # Sets ThrottleLimit to value based on either AzStateThrottleLimit variable
+    # (if present) or the default value set by [AzState]::DefaultThrottleLimit
+    # Sets CacheMode to specified value
+    static [AzState[]] FromIds([String[]]$Ids, [CacheMode]$CacheMode) {
+        # The AzStateThrottleLimit variable can be set to allow
+        # performance tuning based on system resources
+        $private:ThrottleLimit = Get-Variable -Name AzStateThrottleLimit -ErrorAction Ignore
+        if (-not $private:ThrottleLimit) {
+            $private:ThrottleLimit = [AzState]::DefaultThrottleLimit
+        }
+        return [AzState]::FromIds($Ids, $private:ThrottleLimit, $CacheMode)
+    }
+
+    # Sets ThrottleLimit to specified value
+    # Sets CacheMode to default value from [AzState]::DefaultCacheMode
+    static [AzState[]] FromIds([String[]]$Ids, [Int]$ThrottleLimit) {
+        return [AzState]::FromIds($Ids, $ThrottleLimit, [AzState]::DefaultCacheMode)
+    }
+
+    # Sets ThrottleLimit to specified value
+    # Sets CacheMode to specified value
+    static [AzState[]] FromIds([String[]]$Ids, [Int]$ThrottleLimit, [CacheMode]$CacheMode) {
+        $private:IdsCount = $Ids.Count
+        Write-Verbose "[FromIds] running in [parallel] mode with maximum [$ThrottleLimit] threads to process [$private:IdsCount] resources"
+        # Set up and run the parallel processing runspace
+        $FromIdsThreadSafeAzState = [System.Collections.Concurrent.ConcurrentDictionary[String, AzState]]::new()
+        $FromIdsJobs = $Ids | ForEach-Object {
+            Write-Verbose "[FromIds] starting thread job for [$_]"
+            Start-ThreadJob -Name $_ `
+                -ThrottleLimit $ThrottleLimit `
+                -ArgumentList $_, $CacheMode `
+                -ScriptBlock {
+                param ([Parameter()][String]$ScopeId, $CacheMode)
+                Write-Host "[FromIds] generating AzState for [$ScopeId]"
+                $private:AzStateObject = New-AzState -Id $ScopeId -CacheMode $CacheMode
+                $FromIdsAzStateTracker = $using:FromIdsThreadSafeAzState
+                $FromIdsAzStateTracker.TryAdd($private:AzStateObject.Id, $private:AzStateObject)
+            }
+        }
+        $FromIdsJobs | Receive-Job -Wait -AutoRemoveJob
+        # Finally return the array of AzState values from the threadsafe dictionary
+        return $FromIdsThreadSafeAzState.Values
+
+    }
+
+    # ------------------------------------------------------------ #
+    # Method to get AzState of all Children associated with the AzState input objects
+    # Uses FilterByType to control which Children to return
+    # Uses foreach loop to allow processing of multiple AzState input objects
+    static [AzState[]] GetAzStateChildren([AzState[]]$AzStateInputs, [String[]]$IncludeTypes) {
+        $private:AzStateOutput = @()
+        foreach ($AzStateInput in $AzStateInputs) {
+            switch ($AzStateInput.Type) {
+                "Microsoft.Management/managementGroups" {
+                    $private:ChildrenToProcess = @()
+                    if ("Microsoft.Management/managementGroups" -in $IncludeTypes) {
+                        Write-Verbose "[GetAzStateChildren] processing child Management Groups for [$($AzStateInput.Id)]"
+                        $private:FilterByType = "Microsoft.Management/managementGroups"
+                        $private:ChildrenToProcess += ($AzStateInput.Children | Where-Object -Property Type -IEQ $private:FilterByType).Id
+                    }
+                    if ("Microsoft.Resources/subscriptions" -in $IncludeTypes) {
+                        Write-Verbose "[GetAzStateChildren] processing child Subscriptions for [$($AzStateInput.Id)]"
+                        $private:FilterByType = "Microsoft.Management/managementGroups/subscriptions", "Microsoft.Resources/subscriptions"
+                        $private:ChildrenToProcess += ($AzStateInput.Children | Where-Object -Property Type -IIn $private:FilterByType).Id
+                    }
+                    # Currently leaving FromIds to run with the default ThreadLimit and CacheMode settings
+                    $private:AzStateOutput += [AzState]::FromIds($private:ChildrenToProcess)
+                }
+                "Microsoft.Resources/subscriptions" {
+                    if ("Microsoft.Resources/resourceGroups" -in $IncludeTypes) {
+                        Write-Verbose "[GetAzStateChildren] processing child Resource Groups for [$($AzStateInput.Id)]"
+                        $private:AzStateOutput += [AzState]::DirectFromScope("$($AzStateInput.Id)/resourceGroups")
+                    }
+                }
+                "Microsoft.Resources/resourceGroups" {
+                    if ("Microsoft.Resources/resources" -in $IncludeTypes) {
+                        Write-Verbose "[GetAzStateChildren] processing child Resources for [$($AzStateInput.Id)]"
+                        $private:AzStateOutput += [AzState]::FromIds($AzStateInput.Children.Id, 20)
+                    }
+                }
+                Default { $private:AzStateOutput = $null }
+            }
+        }
+        return $private:AzStateOutput
+    }
+
+    # ------------------------------------------------------------ #
+    # Method to get AzState of all IAM objects associated with the AzStateInput object
+    static [AzState[]] GetAzStateIAM([AzState[]]$AzStateInputs) {
+        $private:AzStateOutput = @()
+        $AzStateInputs | ForEach-Object {
+            foreach ($private:PathSuffix in [AzState]::IamPathSuffixes($_.Type)) {
+                $private:IAMPath = $_.Id + $private:PathSuffix
+                $private:AzStateOutput += [AzState]::DirectFromScope($private:IAMPath)
+            }
+        }
+        return $private:AzStateOutput
+    }
+
+    # ------------------------------------------------------------ #
+    # Method to get AzState of all Policy objects associated with the AzStateInput object
+    static [AzState[]] GetAzStatePolicy([AzState[]]$AzStateInputs) {
+        $private:AzStateOutput = @()
+        $AzStateInputs | ForEach-Object {
+            foreach ($private:PathSuffix in [AzState]::PolicyPathSuffixes($_.Type)) {
+                $private:IAMPath = $_.Id + $private:PathSuffix
+                $private:AzStateOutput += [AzState]::DirectFromScope($private:IAMPath)
+            }
+        }
+        return $private:AzStateOutput
     }
 
     #---------------#
