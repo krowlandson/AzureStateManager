@@ -45,6 +45,7 @@ class AzStateProviders {
 
     # Static properties
     hidden static [String]$ProvidersApiVersion = "2020-06-01"
+    hidden static [Release]$DefaultApiRelease = "latest"
 
     # Default empty constructor
     AzStateProviders() {
@@ -61,7 +62,7 @@ class AzStateProviders {
 
     # Static method to get latest stable Api Version using Type
     static [String] GetApiVersionByType([String]$Type) {
-        return [AzStateProviders]::GetApiVersionByType($Type, "stable")
+        return [AzStateProviders]::GetApiVersionByType($Type, [AzStateProviders]::DefaultApiRelease)
     }
 
     # Static method to get Api Version using Type
@@ -95,7 +96,7 @@ class AzStateProviders {
 
     # Static method to show all entries in Cache matching the specified type using default stable release type
     static [AzStateProviders[]] SearchCache([String]$Type) {
-        return [AzStateProviders]::SearchCache($Type, "stable")
+        return [AzStateProviders]::SearchCache($Type, [AzStateProviders]::DefaultApiRelease)
     }
 
     # Static method to show all entries in Cache matching the specified type using the specified release type
@@ -105,7 +106,7 @@ class AzStateProviders {
 
     # Static method to return [Boolean] for Resource Type in Cache query using default stable release type
     static [Boolean] InCache([String]$Type) {
-        return [AzStateProviders]::InCache($Type, "stable")
+        return [AzStateProviders]::InCache($Type, [AzStateProviders]::DefaultApiRelease)
     }
 
     # Static method to return [Boolean] for Resource Type in Cache query using the specified release type
@@ -653,7 +654,7 @@ class AzState {
                 }
             }
             "Microsoft.Resources/subscriptions" {
-                $private:managementGroups = [AzState]::FromScopeParallel("/providers/Microsoft.Management/managementGroups", 2)
+                $private:managementGroups = [AzState]::FromScope("/providers/Microsoft.Management/managementGroups")
                 $private:searchParent = $private:managementGroups | Where-Object { $_.Children.Id -Contains "$($this.Id)" }
                 $private:parent = [AzStateSimple]::new($private:searchParent)
             }
@@ -1032,7 +1033,7 @@ class AzState {
                 # Set up and run the parallel processing runspace
                 $FromScopeThreadSafeAzState = [System.Collections.Concurrent.ConcurrentDictionary[String, AzState]]::new()
                 $FromScopeJobs = $private:AzConfigAtScope.Id | ForEach-Object {
-                    Write-Verbose "[FromScope] starting thread job for [$_]"
+                    Write-Verbose "[FromScope] adding thread job to queue for [$_]"
                     Start-ThreadJob -Name $_ `
                         -ThrottleLimit $ThrottleLimit `
                         -ArgumentList $_, $CacheMode `
@@ -1083,12 +1084,14 @@ class AzState {
     # Sets ThrottleLimit to specified value
     # Sets CacheMode to specified value
     static [AzState[]] FromIds([String[]]$Ids, [Int]$ThrottleLimit, [CacheMode]$CacheMode) {
+        # The following removes items with no value if sent from upstream commands
+        $Ids = $Ids | Where-Object { $_ -ne "" }
         $private:IdsCount = $Ids.Count
         Write-Verbose "[FromIds] running in [parallel] mode with maximum [$ThrottleLimit] threads to process [$private:IdsCount] resources"
         # Set up and run the parallel processing runspace
         $FromIdsThreadSafeAzState = [System.Collections.Concurrent.ConcurrentDictionary[String, AzState]]::new()
         $FromIdsJobs = $Ids | ForEach-Object {
-            Write-Verbose "[FromIds] starting thread job for [$_]"
+            Write-Verbose "[FromIds] adding thread job to queue for [$_]"
             Start-ThreadJob -Name $_ `
                 -ThrottleLimit $ThrottleLimit `
                 -ArgumentList $_, $CacheMode `
