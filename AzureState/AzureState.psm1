@@ -34,6 +34,9 @@ enum Release {
 # Can also output the API version as a param string for use within a Rest API request
 # To minimise the number of Rest API requests needed, this class creates a cache and populates
 # it with all results from the request. The cache is then used to return the requested result.
+# Need to store and lookup the key in lowercase to avoid case sensitivity issues while providing
+# better performance as allows using ContainsKey method to search for key in cache.
+# Should be safe to ignore case as Providers are not case sensitive.
 class AzStateProviders {
 
     # Public class properties
@@ -101,7 +104,7 @@ class AzStateProviders {
 
     # Static method to show all entries in Cache matching the specified type using the specified release type
     static [AzStateProviders[]] SearchCache([String]$Type, [Release]$Release) {
-        return [AzStateProviders]::Cache["$Type ($Release)"]
+        return [AzStateProviders]::Cache["$Type ($Release)".ToString().ToLower()]
     }
 
     # Static method to return [Boolean] for Resource Type in Cache query using default stable release type
@@ -112,12 +115,13 @@ class AzStateProviders {
     # Static method to return [Boolean] for Resource Type in Cache query using the specified release type
     static [Boolean] InCache([String]$Type, [Release]$Release) {
         if ([AzStateProviders]::Cache) {
-            $private:InCache = ([AzStateProviders]::Cache).ContainsKey("$Type ($Release)")
+            $private:CacheKeyLowercase = "$Type ($Release)".ToString().ToLower()
+            $private:InCache = ([AzStateProviders]::Cache).ContainsKey($private:CacheKeyLowercase)
             if ($private:InCache) {
-                Write-Verbose "Resource Type [$Type] ($Release) found in AzStateProviders cache."
+                Write-Verbose "[AzStateProviders] Resource Type found in Cache [$Type] ($Release)"
             }
             else {
-                Write-Verbose "Resource Type [$Type] ($Release) not found in AzStateProviders cache."
+                Write-Verbose "[AzStateProviders] Resource Type not found in Cache [$Type] ($Release)"
             }
             return $private:InCache
         }
@@ -146,7 +150,7 @@ class AzStateProviders {
             [AzStateProviders]::ClearCache()
         }
         foreach ($private:Provider in $private:Providers) {
-            Write-Verbose "Processing Provider Namespace [$($private:Provider.namespace)]"
+            Write-Verbose "[AzStateProviders] Processing Provider Namespace [$($private:Provider.namespace)]"
             foreach ($private:Type in $private:Provider.resourceTypes) {
                 # Check for latest ApiVersion and add to cache
                 $private:LatestApiVersion = ($private:Type.apiVersions `
@@ -179,7 +183,7 @@ class AzStateProviders {
 
     # Static method to add provider instance to Cache
     hidden static [Void] AddToCache([String]$Provider, [String]$ResourceType, [String]$ApiVersion, [String]$Release) {
-        Write-Debug "Adding [$($Provider)/$($ResourceType)] to cache with $Release Api-Version [$ApiVersion]"
+        Write-Debug "[AzStateProviders] Adding [$($Provider)/$($ResourceType)] to Cache with $Release Api-Version [$ApiVersion]"
         $private:AzStateProviderObject = [PsCustomObject]@{
             Provider     = "$Provider"
             ResourceType = "$ResourceType"
@@ -187,24 +191,25 @@ class AzStateProviders {
             ApiVersion   = "$ApiVersion"
             Release      = "$Release"
         }
-        $private:KeyToAdd = "$Provider/$ResourceType ($Release)"
-        $private:ValueToAdd = [AzStateProviders]::new($private:AzStateProviderObject)
-        $private:TryAdd = ([AzStateProviders]::Cache).TryAdd($private:KeyToAdd, $private:ValueToAdd)
+        $private:CacheKey = "$Provider/$ResourceType ($Release)"
+        $private:CacheKeyLowercase = $private:CacheKey.ToString().ToLower()
+        $private:CacheValue = [AzStateProviders]::new($private:AzStateProviderObject)
+        $private:TryAdd = ([AzStateProviders]::Cache).TryAdd($private:CacheKeyLowercase, $private:CacheValue)
         if ($private:TryAdd) {
-            Write-Verbose "Added Resource Type to AzStateProviders Cache [$private:KeyToAdd]"
+            Write-Verbose "[AzStateProviders] Added Resource Type to Cache [$private:CacheKey]"
         }
     }
 
     # Static method to initialize Cache
     # Will also reset cache if exists
     static [Void] InitializeCache() {
-        Write-Verbose "Initializing AzStateProviders cache (Empty)"
+        Write-Verbose "[AzStateProviders] Initializing Cache (Empty)"
         [AzStateProviders]::Cache = [System.Collections.Concurrent.ConcurrentDictionary[String, AzStateProviders]]::new()
     }
 
     # Static method to initialize Cache from copy of cache stored in input variable
     static [Void] InitializeCache([System.Collections.Concurrent.ConcurrentDictionary[String, AzStateProviders]]$AzStateProvidersCache) {
-        Write-Verbose "Initializing AzStateProviders Cache (From Copy)"
+        Write-Verbose "[AzStateProviders] Initializing Cache (From Copy)"
         [AzState]::Cache = $AzStateProvidersCache
     }
 
