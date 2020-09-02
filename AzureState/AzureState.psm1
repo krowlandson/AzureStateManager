@@ -339,6 +339,12 @@ class AzState {
     hidden static [String[]]$DefaultProperties = "Id", "Type", "Name"
     hidden static [CacheMode]$DefaultCacheMode = "UseCache"
     hidden static [Int]$DefaultThrottleLimit = 4
+    hidden static [String[]]$DefaultAzStateChildrenTypes = @(
+        "Microsoft.Management/managementGroups"
+        "Microsoft.Management/managementGroups/subscriptions"
+        "Microsoft.Resources/subscriptions"
+        "Microsoft.Resources/resourceGroups"
+    )
 
     # Regex patterns for use within methods
     hidden static [Regex]$RegexBeforeLastForwardSlash = "(?i)^.*(?=\/)"
@@ -598,14 +604,19 @@ class AzState {
         $this.Children = @()
         $this.LinkedResources = @()
         $private:GetChildren = $this.GetChildren()
-        switch ($this.Type) {
-            "Microsoft.Management/managementGroups" {
-                $this.Children = [AzStateSimple]::Convert(($private:GetChildren | Where-Object { $_.properties.parent.id -eq $this.Id }))
-                $this.LinkedResources = [AzStateSimple]::Convert(($private:GetChildren | Where-Object { $_.properties.parent.id -ne $this.Id }))
+        if ($private:GetChildren) {
+            switch ($this.Type) {
+                "Microsoft.Management/managementGroups" {
+                    $this.Children = [AzStateSimple]::Convert(($private:GetChildren | Where-Object { $_.properties.parent.id -eq $this.Id }))
+                    $this.LinkedResources = [AzStateSimple]::Convert(($private:GetChildren | Where-Object { $_.properties.parent.id -ne $this.Id }))
+                }
+                Default {
+                    $this.Children = [AzStateSimple]::Convert($private:GetChildren)
+                }
             }
-            Default {
-                $this.Children = [AzStateSimple]::Convert($private:GetChildren)
-            }
+        }
+        else {
+            $this.Children = $null
         }
     }
 
@@ -1118,12 +1129,16 @@ class AzState {
     # Method to get AzState of all Children associated with the AzState input objects
     # Uses FilterByType to control which Children to return
     # Uses foreach loop to allow processing of multiple AzState input objects
+    static [AzState[]] GetAzStateChildren([AzState[]]$AzStateInputs) {
+        return [AzState]::GetAzStateChildren($AzStateInputs, [AzState]::DefaultAzStateChildrenTypes)
+    }
+
     static [AzState[]] GetAzStateChildren([AzState[]]$AzStateInputs, [String[]]$IncludeTypes) {
-        $private:AzStateOutput = @()
+        [AzState[]]$private:AzStateOutput = @()
+        $private:ChildrenToProcess = @()
         foreach ($AzStateInput in $AzStateInputs) {
             switch ($AzStateInput.Type) {
                 "Microsoft.Management/managementGroups" {
-                    $private:ChildrenToProcess = @()
                     if ("Microsoft.Management/managementGroups" -in $IncludeTypes) {
                         Write-Verbose "[GetAzStateChildren] processing child Management Groups for [$($AzStateInput.Id)]"
                         $private:FilterByType = "Microsoft.Management/managementGroups"
@@ -1134,25 +1149,27 @@ class AzState {
                         $private:FilterByType = "Microsoft.Management/managementGroups/subscriptions", "Microsoft.Resources/subscriptions"
                         $private:ChildrenToProcess += ($AzStateInput.Children | Where-Object -Property Type -IIn $private:FilterByType).Id
                     }
-                    # Currently leaving FromIds to run with the default ThreadLimit and CacheMode settings
-                    $private:AzStateOutput += [AzState]::FromIds($private:ChildrenToProcess)
                 }
                 "Microsoft.Resources/subscriptions" {
                     if ("Microsoft.Resources/resourceGroups" -in $IncludeTypes) {
                         Write-Verbose "[GetAzStateChildren] processing child Resource Groups for [$($AzStateInput.Id)]"
-                        $private:AzStateOutput += [AzState]::DirectFromScope("$($AzStateInput.Id)/resourceGroups")
+                        $private:ChildrenToProcess += $AzStateInput.Children.Id | Where-Object { $_ -ne "" }
                     }
                 }
                 "Microsoft.Resources/resourceGroups" {
                     if ("Microsoft.Resources/resources" -in $IncludeTypes) {
                         Write-Verbose "[GetAzStateChildren] processing child Resources for [$($AzStateInput.Id)]"
-                        $private:AzStateOutput += [AzState]::FromIds($AzStateInput.Children.Id, 20)
+                        $private:ChildrenToProcess += $AzStateInput.Children.Id | Where-Object { $_ -ne "" }
                     }
                 }
-                Default { $private:AzStateOutput = $null }
+                Default {}
             }
         }
-        return $private:AzStateOutput
+        if ($private:ChildrenToProcess) {
+            $private:ChildrenToProcess = $private:ChildrenToProcess | Sort-Object
+            $private:AzStateOutput += [AzState]::FromIds($private:ChildrenToProcess)
+        }
+        return $private:AzStateOutput         
     }
 
     # ------------------------------------------------------------ #
