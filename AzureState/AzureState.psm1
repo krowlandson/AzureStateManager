@@ -1169,7 +1169,7 @@ class AzState {
             $private:ChildrenToProcess = $private:ChildrenToProcess | Sort-Object
             $private:AzStateOutput += [AzState]::FromIds($private:ChildrenToProcess)
         }
-        return $private:AzStateOutput         
+        return $private:AzStateOutput
     }
 
     # ------------------------------------------------------------ #
