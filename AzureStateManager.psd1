@@ -12,7 +12,7 @@
 RootModule = 'AzureStateManager.psm1'
 
 # Version number of this module.
-ModuleVersion = '0.0.6'
+ModuleVersion = '0.0.7'
 
 # Supported PSEditions
 CompatiblePSEditions = 'Core', 'Desktop'
@@ -98,6 +98,7 @@ FileList = @(
     'AzureState\AzureState.psd1'
     'AzureState\AzureState.psm1'
     'functions\New-AzState.ps1'
+    'functions\New-AzStateDiscovery.ps1'
     'AzureStateManager.psd1'
     'AzureStateManager.psm1'
 )
