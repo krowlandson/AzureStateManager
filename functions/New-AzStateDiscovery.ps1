@@ -66,14 +66,14 @@ function Get-AzStateChildrenByType {
                 # FilterChildrenByType when IncludeResources is specified
                 if ($IncludeResources -and ($AzStateInput.Type -ieq "Microsoft.Resources/resourceGroups")) {
                     $ChildrenToProcess += $AzStateInput.Children | `
-                    Where-Object { $_.Id -ne "" } | `
-                    Where-Object { $_.Id -inotin $ExcludePathIds }
+                        Where-Object { $_.Id -ne "" } | `
+                        Where-Object { $_.Id -inotin $ExcludePathIds }
                 }
                 else {
                     $ChildrenToProcess += $AzStateInput.Children | `
-                    Where-Object { $_.Id -ne "" } | `
-                    Where-Object { $_.Id -inotin $ExcludePathIds } | `
-                    Where-Object { $_.Type -iin $FilterChildrenByType }
+                        Where-Object { $_.Id -ne "" } | `
+                        Where-Object { $_.Id -inotin $ExcludePathIds } | `
+                        Where-Object { $_.Type -iin $FilterChildrenByType }
                 }
             }
             if ($IncludeIAM) {
@@ -191,13 +191,19 @@ function New-AzStateDiscovery {
 
         Write-Verbose -Message "############################################################"
         Write-Verbose -Message "[AzStateDiscovery] Starting AzState Discovery for [$($RootId.Count)] Root Nodes"
-        Write-Verbose -Message "$("[AzStateDiscovery] {0} Management Groups"    -f $(($IncludeManagementGroups) ? {Including}  : {Excluding} ))"
-        Write-Verbose -Message "$("[AzStateDiscovery] {0} Subscriptions"        -f $(($IncludeSubscriptions)    ? {Including}  : {Excluding} ))"
-        Write-Verbose -Message "$("[AzStateDiscovery] {0} Resource Groups"      -f $(($IncludeResourceGroups)   ? {Including}  : {Excluding} ))"
-        Write-Verbose -Message "$("[AzStateDiscovery] {0} Resources"            -f $(($IncludeResources)        ? {Including}  : {Excluding} ))"
-        Write-Verbose -Message "$("[AzStateDiscovery] {0} Access control (IAM)" -f $(($IncludeIAM)              ? {Including}  : {Excluding} ))"
-        Write-Verbose -Message "$("[AzStateDiscovery] {0} Policy"               -f $(($IncludePolicy)           ? {Including}  : {Excluding} ))"
-        Write-Verbose -Message "$("[AzStateDiscovery] Using cache mode [{0}]"   -f $(($CacheMode)               ? {$CacheMode} : {Default}   ))"
+        Write-Verbose -Message "$("[AzStateDiscovery] {0} Management Groups"     -f $(($IncludeManagementGroups) ? {Including}      : {Excluding} ))"
+        Write-Verbose -Message "$("[AzStateDiscovery] {0} Subscriptions"         -f $(($IncludeSubscriptions)    ? {Including}      : {Excluding} ))"
+        Write-Verbose -Message "$("[AzStateDiscovery] {0} Resource Groups"       -f $(($IncludeResourceGroups)   ? {Including}      : {Excluding} ))"
+        Write-Verbose -Message "$("[AzStateDiscovery] {0} Resources"             -f $(($IncludeResources)        ? {Including}      : {Excluding} ))"
+        Write-Verbose -Message "$("[AzStateDiscovery] {0} Access control (IAM)"  -f $(($IncludeIAM)              ? {Including}      : {Excluding} ))"
+        Write-Verbose -Message "$("[AzStateDiscovery] {0} Policy"                -f $(($IncludePolicy)           ? {Including}      : {Excluding} ))"
+        Write-Verbose -Message "$("[AzStateDiscovery] Using Recurse [{0}]"       -f $(($Recurse)                 ? {True}           : {False}     ))"
+        Write-Verbose -Message "$("[AzStateDiscovery] Using ThrottleLimit [{0}]" -f $(($ThrottleLimit)           ? {$ThrottleLimit} : {Default}   ))"
+        Write-Verbose -Message "$("[AzStateDiscovery] Using Cache Mode [{0}]"    -f $(($CacheMode)               ? {$CacheMode}     : {Default}   ))"
+        if ($ExcludePathIds) {
+            Write-Verbose -Message "[AzStateDiscovery] Excluding Resource IDs:"
+            $ExcludePathIds | ForEach-Object { Write-Verbose -Message "[AzStateDiscovery]  - [$_]" }
+        }
         Write-Verbose -Message "############################################################"
 
     }
