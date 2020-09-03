@@ -46,9 +46,6 @@ function Get-AzStateChildrenByType {
         if ($IncludeResourceGroups) {
             $FilterChildrenByType += "Microsoft.Resources/resourceGroups"
         }
-        if ($IncludeResources) {
-            $FilterChildrenByType += "Microsoft.Resources/resources"
-        }
         $ChildrenToProcess = @()
         $IAMToProcess = @()
         $PolicyToProcess = @()
@@ -65,10 +62,19 @@ function Get-AzStateChildrenByType {
 
         foreach ($AzStateInput in $AzStateInputs) {
             if ($AzStateInput.Children) {
-                $ChildrenToProcess += $AzStateInput.Children | `
+                # The following is to avoid needing to list all Resource Types in
+                # FilterChildrenByType when IncludeResources is specified
+                if ($IncludeResources -and ($AzStateInput.Type -ieq "Microsoft.Resources/resourceGroups")) {
+                    $ChildrenToProcess += $AzStateInput.Children | `
+                    Where-Object { $_.Id -ne "" } | `
+                    Where-Object { $_.Id -inotin $ExcludePathIds }
+                }
+                else {
+                    $ChildrenToProcess += $AzStateInput.Children | `
                     Where-Object { $_.Id -ne "" } | `
                     Where-Object { $_.Id -inotin $ExcludePathIds } | `
                     Where-Object { $_.Type -iin $FilterChildrenByType }
+                }
             }
             if ($IncludeIAM) {
                 foreach ($IamPathSuffix in [AzState]::IamPathSuffixes($_.Type)) {
