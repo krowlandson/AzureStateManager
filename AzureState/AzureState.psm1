@@ -508,8 +508,6 @@ class AzState {
     [Void] Initialize([CacheMode]$CacheMode) {
         # Used to set values on variables which require internal methods
         $this.SetProvider()
-        $this.SetIAM()
-        $this.SetPolicy()
         $this.SetChildren()
         $this.SetParent()
         $this.SetParents()
@@ -626,7 +624,7 @@ class AzState {
         foreach ($private:PathSuffix in [AzState]::IamPathSuffixes($this.Type)) {
             $private:IAMPath = $this.Id + $private:PathSuffix
             $private:IAMType = Split-Path ([AzState]::RegexUriParams.Replace($private:PathSuffix, "")) -Leaf
-            $private:IAMItems = [AzState]::GetAzConfig($private:IAMPath)
+            $private:IAMItems = [AzState]::DirectFromScope($private:IAMPath)
             $private:AzStateIAM.$private:IAMType = [AzStateSimple]::Convert($private:IAMItems)
         }
         return $private:AzStateIAM
@@ -644,7 +642,7 @@ class AzState {
         foreach ($private:PathSuffix in [AzState]::PolicyPathSuffixes($this.Type)) {
             $private:PolicyPath = $this.Id + $private:PathSuffix
             $private:PolicyType = Split-Path ([AzState]::RegexUriParams.Replace($private:PathSuffix, "")) -Leaf
-            $private:PolicyItems = [AzState]::GetAzConfig($private:PolicyPath)
+            $private:PolicyItems = [AzState]::DirectFromScope($private:PolicyPath)
             $private:AzStatePolicy.$private:PolicyType = [AzStateSimple]::Convert($private:PolicyItems)
         }
         return $private:AzStatePolicy
@@ -1115,32 +1113,6 @@ class AzState {
         }
         # Finally return the array of AzState values from the threadsafe dictionary
         return $private:FromIds
-    }
-
-    # ------------------------------------------------------------ #
-    # Method to get AzState of all IAM objects associated with the AzStateInput object
-    static [AzState[]] GetAzStateIAM([AzState[]]$AzStateInputs) {
-        $private:AzStateOutput = @()
-        $AzStateInputs | ForEach-Object {
-            foreach ($private:PathSuffix in [AzState]::IamPathSuffixes($_.Type)) {
-                $private:IAMPath = $_.Id + $private:PathSuffix
-                $private:AzStateOutput += [AzState]::DirectFromScope($private:IAMPath)
-            }
-        }
-        return $private:AzStateOutput
-    }
-
-    # ------------------------------------------------------------ #
-    # Method to get AzState of all Policy objects associated with the AzStateInput object
-    static [AzState[]] GetAzStatePolicy([AzState[]]$AzStateInputs) {
-        $private:AzStateOutput = @()
-        $AzStateInputs | ForEach-Object {
-            foreach ($private:PathSuffix in [AzState]::PolicyPathSuffixes($_.Type)) {
-                $private:IAMPath = $_.Id + $private:PathSuffix
-                $private:AzStateOutput += [AzState]::DirectFromScope($private:IAMPath)
-            }
-        }
-        return $private:AzStateOutput
     }
 
     #---------------#
