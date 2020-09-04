@@ -1045,25 +1045,9 @@ class AzState {
             Default {
                 # Generates AzState object from each Id within scope using ThrottleLimit
                 # value to determine the maximum number of parallel threads to use
-                Write-Verbose "[FromScope] running in [parallel] mode with maximum [$ThrottleLimit] threads to process [$private:AzConfigAtScopeCount] resources"
+                Write-Verbose "[FromScope] running in [parallel] mode to process [$private:AzConfigAtScopeCount] using [FromIds] method"
                 # Set up and run the parallel processing runspace
-                $FromScopeThreadSafeAzState = [System.Collections.Concurrent.ConcurrentDictionary[String, AzState]]::new()
-                $FromScopeJobs = $private:AzConfigAtScope.Id | ForEach-Object {
-                    Write-Verbose "[FromScope] adding thread job to queue for [$_]"
-                    Start-ThreadJob -Name $_ `
-                        -ThrottleLimit $ThrottleLimit `
-                        -ArgumentList $_, $CacheMode `
-                        -ScriptBlock {
-                        param ([Parameter()][String]$ScopeId, $CacheMode)
-                        Write-Host "[FromScope] generating AzState for [$ScopeId]"
-                        $private:AzStateObject = New-AzState -Id $ScopeId -CacheMode $CacheMode
-                        $FromScopeAzStateTracker = $using:FromScopeThreadSafeAzState
-                        $FromScopeAzStateTracker.TryAdd($private:AzStateObject.Id, $private:AzStateObject)
-                    }
-                }
-                $FromScopeJobs | Receive-Job -Wait -AutoRemoveJob
-                # Finally return the array of AzState values from the threadsafe dictionary
-                $private:FromScope = $FromScopeThreadSafeAzState.Values
+                $private:FromScope += [AzState]::FromIds($private:AzConfigAtScope.Id, $ThrottleLimit, $CacheMode)
             }
         }
         return $private:FromScope
@@ -1100,6 +1084,7 @@ class AzState {
     # Sets ThrottleLimit to specified value
     # Sets CacheMode to specified value
     static [AzState[]] FromIds([String[]]$Ids, [Int]$ThrottleLimit, [CacheMode]$CacheMode) {
+        $private:FromIds = @()
         # The following removes items with no value if sent from upstream commands
         $Ids = $Ids | Where-Object { $_ -ne "" }
         $private:IdsCount = $Ids.Count
@@ -1120,9 +1105,16 @@ class AzState {
             }
         }
         $FromIdsJobs | Receive-Job -Wait -AutoRemoveJob
+        # The following is used to ensure the object returned from the Threadjob
+        # is correctly initialized as a valid AzState object, to avoid the error
+        # OperationStopped: Object reference not set to an instance of an object.
+        $FromIdsThreadSafeAzState.Values | ForEach-Object {
+            $private:AzState = New-AzState
+            $private:AzState.Initialize($_, $CacheMode, $true)
+            $private:FromIds += $private:AzState
+        }
         # Finally return the array of AzState values from the threadsafe dictionary
-        return $FromIdsThreadSafeAzState.Values
-
+        return $private:FromIds
     }
 
     # ------------------------------------------------------------ #
