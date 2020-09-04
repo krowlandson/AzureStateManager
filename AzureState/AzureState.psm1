@@ -495,7 +495,7 @@ class AzState {
     }
 
     #------------------------#
-    # Initialization Method #
+    # Initialization Methods #
     #------------------------#
 
     # The initialization methods are use to set additional AzState attributes
@@ -1115,53 +1115,6 @@ class AzState {
         }
         # Finally return the array of AzState values from the threadsafe dictionary
         return $private:FromIds
-    }
-
-    # ------------------------------------------------------------ #
-    # Method to get AzState of all Children associated with the AzState input objects
-    # Uses FilterByType to control which Children to return
-    # Uses foreach loop to allow processing of multiple AzState input objects
-    static [AzState[]] GetAzStateChildren([AzState[]]$AzStateInputs) {
-        return [AzState]::GetAzStateChildren($AzStateInputs, [AzState]::DefaultAzStateChildrenTypes)
-    }
-
-    static [AzState[]] GetAzStateChildren([AzState[]]$AzStateInputs, [String[]]$IncludeTypes) {
-        [AzState[]]$private:AzStateOutput = @()
-        $private:ChildrenToProcess = @()
-        foreach ($AzStateInput in $AzStateInputs) {
-            switch ($AzStateInput.Type) {
-                "Microsoft.Management/managementGroups" {
-                    if ("Microsoft.Management/managementGroups" -in $IncludeTypes) {
-                        Write-Verbose "[GetAzStateChildren] processing child Management Groups for [$($AzStateInput.Id)]"
-                        $private:FilterByType = "Microsoft.Management/managementGroups"
-                        $private:ChildrenToProcess += ($AzStateInput.Children | Where-Object -Property Type -IEQ $private:FilterByType).Id
-                    }
-                    if ("Microsoft.Resources/subscriptions" -in $IncludeTypes) {
-                        Write-Verbose "[GetAzStateChildren] processing child Subscriptions for [$($AzStateInput.Id)]"
-                        $private:FilterByType = "Microsoft.Management/managementGroups/subscriptions", "Microsoft.Resources/subscriptions"
-                        $private:ChildrenToProcess += ($AzStateInput.Children | Where-Object -Property Type -IIn $private:FilterByType).Id
-                    }
-                }
-                "Microsoft.Resources/subscriptions" {
-                    if ("Microsoft.Resources/resourceGroups" -in $IncludeTypes) {
-                        Write-Verbose "[GetAzStateChildren] processing child Resource Groups for [$($AzStateInput.Id)]"
-                        $private:ChildrenToProcess += $AzStateInput.Children.Id | Where-Object { $_ -ne "" }
-                    }
-                }
-                "Microsoft.Resources/resourceGroups" {
-                    if ("Microsoft.Resources/resources" -in $IncludeTypes) {
-                        Write-Verbose "[GetAzStateChildren] processing child Resources for [$($AzStateInput.Id)]"
-                        $private:ChildrenToProcess += $AzStateInput.Children.Id | Where-Object { $_ -ne "" }
-                    }
-                }
-                Default {}
-            }
-        }
-        if ($private:ChildrenToProcess) {
-            $private:ChildrenToProcess = $private:ChildrenToProcess | Sort-Object
-            $private:AzStateOutput += [AzState]::FromIds($private:ChildrenToProcess)
-        }
-        return $private:AzStateOutput
     }
 
     # ------------------------------------------------------------ #
