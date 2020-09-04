@@ -756,7 +756,7 @@ class AzState {
             "Microsoft.Management/managementGroups" {
                 $private:subscriptions = $this.Children `
                 | Where-Object { $_.type -match "/subscriptions$" }
-                $private:dotTf += "resource `"azurerm_management_group`" `"{0}`" {{" -f $this.Id -replace "/", "_"
+                $private:dotTf += "resource `"azurerm_management_group`" `"{0}`" {{" -f ($this.Id -replace "[^\w]", "_")
                 $private:dotTf += "  display_name = `"{0}`"" -f $this.Name
                 $private:dotTf += ""
                 if ($this.Parent.Id) {
@@ -766,7 +766,7 @@ class AzState {
                 if ($private:subscriptions) {
                     $private:dotTf += "  subscription_ids = ["
                     foreach ($private:subscription in $private:subscriptions) {
-                        $private:dotTf += "    `"{0}`"" -f $private:subscription.Id
+                        $private:dotTf += "    `"{0}`"," -f ($private:subscription.Id -replace "/subscriptions/", "")
                     }
                     $private:dotTf += "  ]"
                 }
@@ -774,7 +774,7 @@ class AzState {
                 $private:dotTf += ""
             }
             "Microsoft.Resources/subscriptions" {
-                $private:dotTf += "data `"azurerm_subscription`" `"{0}`" {{" -f $this.Id -replace "/", "_"
+                $private:dotTf += "data `"azurerm_subscription`" `"{0}`" {{" -f ($this.Id -replace "[^\w]", "_")
                 $private:dotTf += "  subscription_id = `"{0}`"" -f $this.Raw.subscriptionId
                 $private:dotTf += "}"
                 $private:dotTf += ""
@@ -782,7 +782,7 @@ class AzState {
             "Microsoft.Resources/resourceGroups" {
                 $private:subscriptions = $this.Children `
                 | Where-Object { $_.type -match "/subscriptions$" }
-                $private:dotTf += "resource `"azurerm_resource_group`" `"{0}`" {{" -f $this.Id -replace "/", "_"
+                $private:dotTf += "resource `"azurerm_resource_group`" `"{0}`" {{" -f ($this.Id -replace "[^\w]", "_")
                 $private:dotTf += "  name     = `"{0}`"" -f $this.Name
                 $private:dotTf += "  location = `"{0}`"" -f $this.Raw.Location
                 if ($this.Raw.Tags.psobject.properties.count -ge 1) {
