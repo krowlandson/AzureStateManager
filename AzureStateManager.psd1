@@ -12,7 +12,7 @@
 RootModule = 'AzureStateManager.psm1'
 
 # Version number of this module.
-ModuleVersion = '0.0.8'
+ModuleVersion = '0.0.9'
 
 # Supported PSEditions
 CompatiblePSEditions = 'Core', 'Desktop'
@@ -30,7 +30,7 @@ CompanyName = 'krowlandson'
 Copyright = 'Copyright (c) 2020 Kevin Rowlandson. All rights reserved.'
 
 # Description of the functionality provided by this module
-Description = 'This module provides a set of PowerShell commands used to manage the state of Azure resources.'
+Description = 'This module provides a set of PowerShell commands used to capture and manage the state of Azure resources.'
 
 # Minimum version of the PowerShell engine required by this module
 PowerShellVersion = '7.0'
