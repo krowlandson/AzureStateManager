@@ -20,6 +20,13 @@ enum CacheMode {
     # SkipCacheRecurse
 }
 
+enum DiscoveryMode {
+    IncludeIAM
+    IncludePolicy
+    IncludeBoth
+    ExcludeBoth
+}
+
 enum Release {
     stable
     latest
@@ -338,6 +345,7 @@ class AzState {
     # Hidden static class properties
     hidden static [String[]]$DefaultProperties = "Id", "Type", "Name"
     hidden static [CacheMode]$DefaultCacheMode = "UseCache"
+    hidden static [DiscoveryMode]$DefaultDiscoveryMode = "ExcludeBoth"
     hidden static [Int]$DefaultThrottleLimit = 4
     hidden static [String[]]$DefaultAzStateChildrenTypes = @(
         "Microsoft.Management/managementGroups"
@@ -415,30 +423,64 @@ class AzState {
     # Default Constructors #
     #----------------------#
 
-    # Default empty constructor
+    # Create new empty AzState object
     AzState() {
     }
 
-    # Default constructor using Resource Id input
-    # Uses Update() method to auto-populate from Resource Id
-    # Update() sets CacheMode to default value from [AzState]::DefaultCacheMode
+    # Create new AzState object from input Id with default settings
+    # Sets CacheMode to default value from [AzState]::DefaultCacheMode
+    # Sets DiscoveryMode to default value from [AzState]::DefaultDiscoveryMode
     AzState([String]$Id) {
-        $this.Update($Id)
+        $this.Update($Id, [AzState]::DefaultCacheMode, [AzState]::DefaultDiscoveryMode)
     }
 
-    # Default constructor using Resource Id and CacheMode inputs
-    # Uses Update() method to auto-populate from Resource Id
+    # Create new AzState object from input Id
     # Sets UseCache to specified value
+    # Sets DiscoveryMode to default value from [AzState]::DefaultDiscoveryMode
     AzState([String]$Id, [CacheMode]$CacheMode) {
-        $this.Update($Id, $CacheMode)
+        $this.Update($Id, $CacheMode, [AzState]::DefaultDiscoveryMode)
     }
 
+    # Create new AzState object from input Id
+    # Sets CacheMode to default value from [AzState]::DefaultCacheMode
+    # Sets DiscoveryMode to specified value
+    AzState([String]$Id, [DiscoveryMode]$DiscoveryMode) {
+        $this.Update($Id, [AzState]::DefaultCacheMode, $DiscoveryMode)
+    }
+
+    # Create new AzState object from input Id
+    # Sets CacheMode to specified value
+    # Sets DiscoveryMode to specified value
+    AzState([String]$Id, [CacheMode]$CacheMode, [DiscoveryMode]$DiscoveryMode) {
+        $this.Update($Id, $CacheMode, $DiscoveryMode)
+    }
+
+    # Create new AzState object from input object with default settings
+    # Sets CacheMode to default value from [AzState]::DefaultCacheMode
+    # Sets DiscoveryMode to default value from [AzState]::DefaultDiscoveryMode
     AzState([PSCustomObject]$PSCustomObject) {
-        $this.Initialize($PSCustomObject)
+        $this.Initialize($PSCustomObject, [AzState]::DefaultCacheMode, [AzState]::DefaultDiscoveryMode)
     }
 
+    # Create new AzState object from input object
+    # Sets UseCache to specified value
+    # Sets DiscoveryMode to default value from [AzState]::DefaultDiscoveryMode
     AzState([PSCustomObject]$PSCustomObject, [CacheMode]$CacheMode) {
-        $this.Initialize($PSCustomObject, $CacheMode)
+        $this.Initialize($PSCustomObject, $CacheMode, [AzState]::DefaultDiscoveryMode)
+    }
+
+    # Create new AzState object from input object
+    # Sets CacheMode to default value from [AzState]::DefaultCacheMode
+    # Sets DiscoveryMode to specified value
+    AzState([PSCustomObject]$PSCustomObject, [DiscoveryMode]$DiscoveryMode) {
+        $this.Initialize($PSCustomObject, [AzState]::DefaultCacheMode, $DiscoveryMode)
+    }
+
+    # Create new AzState object from input object
+    # Sets CacheMode to specified value
+    # Sets DiscoveryMode to specified value
+    AzState([PSCustomObject]$PSCustomObject, [CacheMode]$CacheMode, [DiscoveryMode]$DiscoveryMode) {
+        $this.Initialize($PSCustomObject, $CacheMode, $DiscoveryMode)
     }
 
     #----------------#
@@ -446,46 +488,78 @@ class AzState {
     #----------------#
 
     # The update method is used to update all AzState attributes
-    # using the provided Id to start discovery
+    # using either the existing Id, provided Id or input object
+    # to start discovery
     # This method is also used for creation of a new AzState
     # object to avoid duplication of code
 
-    # Update method used to update [AzState] object using the existing Id value
+    # Update [AzState] object using the existing Id value
     # Sets CacheMode to default value from [AzState]::DefaultCacheMode
+    # Sets DiscoveryMode to default value from [AzState]::DefaultDiscoveryMode
     [Void] Update() {
-        $this.Update([AzState]::DefaultCacheMode)
+        $this.Update([AzState]::DefaultCacheMode, [AzState]::DefaultDiscoveryMode)
     }
 
-    # Update method used to update [AzState] object using the existing Id value
-    # Sets UseCache to specified value
+    # Update [AzState] object using the existing Id value
+    # Sets CacheMode to specified value
+    # Sets DiscoveryMode to default value from [AzState]::DefaultDiscoveryMode
     [Void] Update([CacheMode]$CacheMode) {
+        $this.Update($CacheMode, [AzState]::DefaultDiscoveryMode)
+    }
+
+    # Update [AzState] object using the existing Id value
+    # Sets CacheMode to default value from [AzState]::DefaultCacheMode
+    # Sets DiscoveryMode to specified value
+    [Void] Update([DiscoveryMode]$DiscoveryMode) {
+        $this.Update([AzState]::DefaultCacheMode, $DiscoveryMode)
+    }
+
+    # Update [AzState] object using the existing Id value
+    # Sets UseCache to specified value
+    [Void] Update([CacheMode]$CacheMode, [DiscoveryMode]$DiscoveryMode) {
         if ($this.Id) {
-            $this.Update($this.Id, $CacheMode)
+            $this.Update($this.Id, $CacheMode, $DiscoveryMode)
         }
         else {
             Write-Error "Unable to update AzState. Please set a valid resource Id in the AzState object, or provide as an argument."
         }
     }
 
-    # Update method used to update [AzState] object using the specified Id value
+    # Update [AzState] object using the specified Id value
     # Sets CacheMode to default value from [AzState]::DefaultCacheMode
+    # Sets DiscoveryMode to default value from [AzState]::DefaultDiscoveryMode
     [Void] Update([String]$Id) {
-        $this.Update($Id, [AzState]::DefaultCacheMode)
+        $this.Update($Id, [AzState]::DefaultCacheMode, [AzState]::DefaultDiscoveryMode)
+    }
+
+    # Update [AzState] object using the specified Id value
+    # Sets UseCache to specified value
+    # Sets DiscoveryMode to default value from [AzState]::DefaultDiscoveryMode
+    [Void] Update([String]$Id, [CacheMode]$CacheMode) {
+        $this.Update($Id, $CacheMode, [AzState]::DefaultDiscoveryMode)
+    }
+
+    # Update [AzState] object using the specified Id value
+    # Sets CacheMode to default value from [AzState]::DefaultCacheMode
+    # Sets DiscoveryMode to specified value
+    [Void] Update([String]$Id, [DiscoveryMode]$DiscoveryMode) {
+        $this.Update($Id, [AzState]::DefaultCacheMode, $DiscoveryMode)
     }
 
     # Update method used to update [AzState] object using the specified Id value
     # Sets UseCache to specified value
-    [Void] Update([String]$Id, [CacheMode]$CacheMode) {
+    # Sets DiscoveryMode to specified value
+    [Void] Update([String]$Id, [CacheMode]$CacheMode, [DiscoveryMode]$DiscoveryMode) {
         if (($CacheMode -eq "UseCache") -and [AzState]::InCache($Id)) {
             Write-Verbose "New-AzState (FROM CACHE) [$Id]"
             $private:CachedAzState = [AzState]::SearchCache($Id)
-            $this.Initialize($private:CachedAzState, $CacheMode, $true)
+            $this.Initialize($private:CachedAzState, $CacheMode, $DiscoveryMode, $true)
         }
         else {
             Write-Verbose "New-AzState (FROM API) [$Id]"
             $private:GetAzConfig = [AzState]::GetAzConfig($Id, [CacheMode]"SkipCache")
             if ($private:GetAzConfig.Count -eq 1) {
-                $this.Initialize($private:GetAzConfig[0], $CacheMode, $false)
+                $this.Initialize($private:GetAzConfig[0], $CacheMode, $DiscoveryMode, $false)
             }
             else {
                 Write-Error "Unable to update AzState for multiple Resources under ID [$Id]. Please set the ID to a specific Resource ID, or use the FromScope method to create AzState for multiple Resources at the specified scope."
@@ -501,43 +575,100 @@ class AzState {
     # The initialization methods are use to set additional AzState attributes
     # which are calculated from the base object properties
 
+    # Initialize [AzState] object
+    # Sets CacheMode to default value from [AzState]::DefaultCacheMode
+    # Sets DiscoveryMode to default value from [AzState]::DefaultDiscoveryMode
     [Void] Initialize() {
-        $this.Initialize([AzState]::DefaultCacheMode)
+        $this.Initialize([AzState]::DefaultCacheMode, [AzState]::DefaultDiscoveryMode)
     }
 
+    # Initialize [AzState] object
+    # Sets CacheMode to specified value
+    # Sets DiscoveryMode to default value from [AzState]::DefaultDiscoveryMode
     [Void] Initialize([CacheMode]$CacheMode) {
+        $this.Initialize($CacheMode, [AzState]::DefaultDiscoveryMode)
+    }
+
+    # Initialize [AzState] object
+    # Sets CacheMode to default value from [AzState]::DefaultCacheMode
+    # Sets DiscoveryMode to specified value
+    [Void] Initialize([DiscoveryMode]$DiscoveryMode) {
+        $this.Initialize([AzState]::DefaultCacheMode, $DiscoveryMode)
+    }
+
+    # Initialize [AzState] object
+    # Sets CacheMode to specified value (pending development)
+    # Sets DiscoveryMode to specified value
+    [Void] Initialize([CacheMode]$CacheMode, [DiscoveryMode]$DiscoveryMode) {
         # Used to set values on variables which require internal methods
         $this.SetProvider()
         $this.SetChildren()
         $this.SetParent()
         $this.SetParents()
         $this.SetResourcePath()
+        $this.SetIAM($DiscoveryMode)
+        $this.SetPolicy($DiscoveryMode)
         # After the state object is initialized, add to the Cache array
         [AzState]::AddToCache($this)
     }
 
+    # Initialize [AzState] object using the specified input object
+    # Sets CacheMode to default value from [AzState]::DefaultCacheMode
+    # Sets DiscoveryMode to default value from [AzState]::DefaultDiscoveryMode
+    # Sets UsingCache to false to enable full initialization
     [Void] Initialize([PsCustomObject]$PsCustomObject) {
-        $this.Initialize($PsCustomObject, [AzState]::DefaultCacheMode)
+        $this.Initialize($PsCustomObject, [AzState]::DefaultCacheMode, [AzState]::DefaultDiscoveryMode, $false)
     }
 
-    [Void] Initialize([PsCustomObject]$PsCustomObject, [Boolean]$UsingCache) {
-        $this.Initialize($PsCustomObject, [AzState]::DefaultCacheMode, $UsingCache)
-    }
-
+    # Initialize [AzState] object using the specified input object
+    # Sets UseCache to specified value
+    # Sets DiscoveryMode to default value from [AzState]::DefaultDiscoveryMode
+    # Sets UsingCache to false to enable full initialization
     [Void] Initialize([PsCustomObject]$PsCustomObject, [CacheMode]$CacheMode) {
-        $this.Initialize($PsCustomObject, $CacheMode, $false)
+        $this.Initialize($PsCustomObject, $CacheMode, [AzState]::DefaultDiscoveryMode, $false)
     }
 
-    [Void] Initialize([PsCustomObject]$PsCustomObject, [CacheMode]$CacheMode, [Boolean]$UsingCache) {
+    # Initialize [AzState] object using the specified input object
+    # Sets CacheMode to default value from [AzState]::DefaultCacheMode
+    # Sets DiscoveryMode to specified value
+    # Sets UsingCache to false to enable full initialization
+    [Void] Initialize([PsCustomObject]$PsCustomObject, [DiscoveryMode]$DiscoveryMode) {
+        $this.Initialize($PsCustomObject, [AzState]::DefaultCacheMode, $DiscoveryMode, $false)
+    }
+
+    # Initialize [AzState] object using the specified input object
+    # Sets UseCache to specified value
+    # Sets DiscoveryMode to specified value
+    # Sets UsingCache to false to enable full initialization
+    [Void] Initialize([PsCustomObject]$PsCustomObject, [CacheMode]$CacheMode, [DiscoveryMode]$DiscoveryMode) {
+        $this.Initialize($PsCustomObject, $CacheMode, $DiscoveryMode, $false)
+    }
+
+    # Initialize [AzState] object using the specified input object
+    # Sets UseCache to specified value
+    # Sets DiscoveryMode to specified value
+    # Sets UsingCache to specified value
+    [Void] Initialize([PsCustomObject]$PsCustomObject, [CacheMode]$CacheMode, [DiscoveryMode]$DiscoveryMode, [Boolean]$UsingCache) {
         # Using a foreach loop to set all properties dynamically
         if ($UsingCache) {
             foreach ($property in $this.psobject.Properties.Name) {
                 $this.$property = $PsCustomObject.$property
             }
+            # Check whether cached item needs updating to include IAM or Policy
+            # IMPROVEMENT: Need to look into whether to add method to force update of cached item
+            if (($DiscoveryMode -eq "IncludeBoth") -and ((-not $this.IAM) -or (-not $this.Policy))) {
+                $this.Initialize($CacheMode, $DiscoveryMode)
+            }
+            elseif (($DiscoveryMode -eq "IncludeIAM") -and (-not $this.IAM)) {
+                $this.Initialize($CacheMode, $DiscoveryMode)
+            }
+            elseif (($DiscoveryMode -eq "IncludePolicy") -and (-not $this.Policy)) {
+                $this.Initialize($CacheMode, $DiscoveryMode)
+            }
         }
         else {
             $this.SetDefaultProperties($PsCustomObject)
-            $this.Initialize($CacheMode)
+            $this.Initialize($CacheMode, $DiscoveryMode)
         }
     }
 
@@ -631,9 +762,22 @@ class AzState {
     }
 
     # Method to set IAM configuration based on Resource Type of object
+    # Sets DiscoveryMode to default value from [AzState]::DefaultDiscoveryMode
     hidden [Void] SetIAM() {
-        $private:IAM = $this.GetIAM()
-        $this.IAM = $private:IAM
+        $this.SetIAM([AzState]::DefaultDiscoveryMode)
+    }
+
+    # Method to set IAM configuration based on Resource Type of object
+    # Sets DiscoveryMode to specified value
+    hidden [Void] SetIAM([String]$DiscoveryMode) {
+        $private:SupportedDiscoveryModes = @(
+            "IncludeIAM"
+            "IncludeBoth"
+        )
+        if ($DiscoveryMode -in $private:SupportedDiscoveryModes) {
+            $private:IAM = $this.GetIAM()
+            $this.IAM = $private:IAM
+        }
     }
 
     # Method to get Policy configuration based on Resource Type of object
@@ -649,9 +793,22 @@ class AzState {
     }
 
     # Method to set Policy configuration based on Resource Type of object
+    # Sets DiscoveryMode to default value from [AzState]::DefaultDiscoveryMode
     hidden [Void] SetPolicy() {
-        $private:Policy = $this.GetPolicy()
-        $this.Policy = $private:Policy
+        $this.SetPolicy([AzState]::DefaultDiscoveryMode)
+    }
+
+    # Method to set Policy configuration based on Resource Type of object
+    # Sets DiscoveryMode to specified value
+    hidden [Void] SetPolicy([String]$DiscoveryMode) {
+        $private:SupportedDiscoveryModes = @(
+            "IncludePolicy"
+            "IncludeBoth"
+        )
+        if ($DiscoveryMode -in $private:SupportedDiscoveryModes) {
+            $private:Policy = $this.GetPolicy()
+            $this.Policy = $private:Policy
+        }
     }
 
     # Method to determine the parent resource for the current AzState instance
@@ -1056,33 +1213,77 @@ class AzState {
     # using multiple thread jobs to enable parallel processing
 
     # Sets CacheMode to default value from [AzState]::DefaultCacheMode
+    # Sets DiscoveryMode to default value from [AzState]::DefaultDiscoveryMode
     static [AzState[]] FromIds([String[]]$Ids) {
-        return [AzState]::FromIds($Ids, [AzState]::DefaultCacheMode)
+        return [AzState]::FromIds($Ids, [AzState]::DefaultCacheMode, [AzState]::DefaultDiscoveryMode)
+    }
+
+    # Sets CacheMode to default value from [AzState]::DefaultCacheMode
+    # Sets DiscoveryMode to default value from [AzState]::DefaultDiscoveryMode
+    static [AzState[]] FromIds([String[]]$Ids, [CacheMode]$CacheMode) {
+        return [AzState]::FromIds($Ids, $CacheMode, [AzState]::DefaultDiscoveryMode)
+    }
+
+    # Sets CacheMode to default value from [AzState]::DefaultCacheMode
+    # Sets DiscoveryMode to specified value
+    static [AzState[]] FromIds([String[]]$Ids, [DiscoveryMode]$DiscoveryMode) {
+        return [AzState]::FromIds($Ids, [AzState]::DefaultCacheMode, $DiscoveryMode)
     }
 
     # Sets ThrottleLimit to value based on either AzStateThrottleLimit variable
     # (if present) or the default value set by [AzState]::DefaultThrottleLimit
     # Sets CacheMode to specified value
-    static [AzState[]] FromIds([String[]]$Ids, [CacheMode]$CacheMode) {
+    static [AzState[]] FromIds([String[]]$Ids, [CacheMode]$CacheMode, [DiscoveryMode]$DiscoveryMode) {
         # The AzStateThrottleLimit variable can be set to allow
         # performance tuning based on system resources
         $private:ThrottleLimit = Get-Variable -Name AzStateThrottleLimit -ErrorAction Ignore
         if (-not $private:ThrottleLimit) {
             $private:ThrottleLimit = [AzState]::DefaultThrottleLimit
         }
-        return [AzState]::FromIds($Ids, $private:ThrottleLimit, $CacheMode)
+        return [AzState]::FromIds($Ids, $private:ThrottleLimit, $CacheMode, $DiscoveryMode)
     }
 
     # Sets ThrottleLimit to specified value
     # Sets CacheMode to default value from [AzState]::DefaultCacheMode
+    # Sets DiscoveryMode to default value from [AzState]::DefaultDiscoveryMode
     static [AzState[]] FromIds([String[]]$Ids, [Int]$ThrottleLimit) {
-        return [AzState]::FromIds($Ids, $ThrottleLimit, [AzState]::DefaultCacheMode)
+        return [AzState]::FromIds($Ids, $ThrottleLimit, [AzState]::DefaultCacheMode, [AzState]::DefaultDiscoveryMode)
     }
 
     # Sets ThrottleLimit to specified value
     # Sets CacheMode to specified value
+    # Sets DiscoveryMode to default value from [AzState]::DefaultDiscoveryMode
     static [AzState[]] FromIds([String[]]$Ids, [Int]$ThrottleLimit, [CacheMode]$CacheMode) {
+        return [AzState]::FromIds($Ids, $ThrottleLimit, $CacheMode, [AzState]::DefaultDiscoveryMode)
+    }
+
+    # Sets ThrottleLimit to specified value
+    # Sets CacheMode to default value from [AzState]::DefaultCacheMode
+    # Sets DiscoveryMode to specified value
+    static [AzState[]] FromIds([String[]]$Ids, [Int]$ThrottleLimit, [DiscoveryMode]$DiscoveryMode) {
+        return [AzState]::FromIds($Ids, $ThrottleLimit, [AzState]::DefaultCacheMode, $DiscoveryMode)
+    }
+
+    # Sets ThrottleLimit to specified value
+    # Sets CacheMode to specified value
+    static [AzState[]] FromIds([String[]]$Ids, [Int]$ThrottleLimit, [CacheMode]$CacheMode, [DiscoveryMode]$DiscoveryMode) {
         $private:FromIds = @()
+        $private:IncludeIAM = $false
+        $private:IncludePolicy = $false
+        $private:SkipCache = $false
+        if ($CacheMode -eq "SkipCache") {
+            $private:SkipCache = $true
+        }
+        if ($DiscoveryMode -eq "IncludeBoth") {
+            $private:IncludeIAM = $true
+            $private:IncludePolicy = $true
+        }
+        if ($DiscoveryMode -eq "IncludeIAM") {
+            $private:IncludeIAM = $true
+        }
+        if ($DiscoveryMode -eq "IncludePolicy") {
+            $private:IncludePolicy = $true
+        }
         # The following removes items with no value if sent from upstream commands
         $Ids = $Ids | Where-Object { $_ -ne "" }
         $private:IdsCount = $Ids.Count
@@ -1093,11 +1294,12 @@ class AzState {
             Write-Verbose "[FromIds] adding thread job to queue for [$_]"
             Start-ThreadJob -Name $_ `
                 -ThrottleLimit $ThrottleLimit `
-                -ArgumentList $_, $CacheMode `
+                -ArgumentList $_, $private:IncludeIAM, $private:IncludePolicy, $private:SkipCache `
                 -ScriptBlock {
-                param ([Parameter()][String]$ScopeId, $CacheMode)
-                Write-Host "[FromIds] generating AzState for [$ScopeId]"
-                $private:AzStateObject = New-AzState -Id $ScopeId -CacheMode $CacheMode
+                param ([Parameter()][String]$ScopeId, $IncludeIAM, $IncludePolicy, $SkipCache)
+                $VerbosePreference = $using:VerbosePreference
+                Write-Verbose "[FromIds] generating AzState for [$ScopeId]"
+                $private:AzStateObject = New-AzState -Id $ScopeId -IncludeIAM:$IncludeIAM -IncludePolicy:$IncludePolicy -SkipCache:$SkipCache
                 $FromIdsAzStateTracker = $using:FromIdsThreadSafeAzState
                 $FromIdsAzStateTracker.TryAdd($private:AzStateObject.Id, $private:AzStateObject)
             }
@@ -1108,7 +1310,7 @@ class AzState {
         # OperationStopped: Object reference not set to an instance of an object.
         $FromIdsThreadSafeAzState.Values | ForEach-Object {
             $private:AzState = New-AzState
-            $private:AzState.Initialize($_, $CacheMode, $true)
+            $private:AzState.Initialize($_, $CacheMode, $DiscoveryMode, $true)
             $private:FromIds += $private:AzState
         }
         # Finally return the array of AzState values from the threadsafe dictionary

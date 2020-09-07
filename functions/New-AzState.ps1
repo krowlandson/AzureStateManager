@@ -14,20 +14,37 @@ function New-AzState {
 
     [CmdletBinding()]
     param (
-        [Parameter()]
         [String]$Id,
-        [Parameter()]
-        [CacheMode]$CacheMode
+        [Switch]$IncludeIAM,
+        [Switch]$IncludePolicy,
+        [Switch]$SkipCache
     )
 
+    # Initialize ArgumentList variable and update based on parameter inputs
     $ArgumentList = @{}
     if ($Id) {
         $ArgumentList = @{
             ArgumentList = [Object[]]$Id
         }
-    }
-    if ($CacheMode) {
-        $ArgumentList.ArgumentList += $CacheMode
+        if ($SkipCache) {
+            $ArgumentList.ArgumentList += [CacheMode]"SkipCache"
+        }
+        else {
+            $ArgumentList.ArgumentList += [CacheMode]"UseCache"
+        }
+    
+        if ($IncludeIAM -and $IncludePolicy) {
+            $ArgumentList.ArgumentList += [DiscoveryMode]"IncludeBoth"
+        }
+        elseif ($IncludeIAM) {
+            $ArgumentList.ArgumentList += [DiscoveryMode]"IncludeIAM"
+        }
+        elseif ($IncludePolicy) {
+            $ArgumentList.ArgumentList += [DiscoveryMode]"IncludePolicy"
+        }
+        else {
+            $ArgumentList.ArgumentList += [DiscoveryMode]"ExcludeBoth"
+        }
     }
 
     $AzState = New-Object -TypeName AzState @ArgumentList

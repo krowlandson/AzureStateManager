@@ -7,6 +7,13 @@ enum CacheMode {
     SkipCache
 }
 
+enum DiscoveryMode {
+    IncludeIAM
+    IncludePolicy
+    IncludeBoth
+    ExcludeBoth
+}
+
 #########################################
 # Module dependencies and configuration #
 #########################################

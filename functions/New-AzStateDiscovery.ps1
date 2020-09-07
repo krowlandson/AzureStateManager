@@ -34,7 +34,7 @@ function Get-AzStateChildrenByType {
         [Parameter()]
         [Int]$ThrottleLimit,
         [Parameter()]
-        [CacheMode]$CacheMode
+        [Switch]$SkipCache
     )
 
     begin {
@@ -45,18 +45,41 @@ function Get-AzStateChildrenByType {
 
         [AzState[]]$AzStateOutput = @()
         [String[]]$FilterChildrenByType = @()
-        if ($IncludeManagementGroups) {
-            $FilterChildrenByType += "Microsoft.Management/managementGroups"
-        }
-        if ($IncludeSubscriptions) {
-            $FilterChildrenByType += "Microsoft.Management/managementGroups/subscriptions", "Microsoft.Resources/subscriptions"
-        }
-        if ($IncludeResourceGroups) {
-            $FilterChildrenByType += "Microsoft.Resources/resourceGroups"
-        }
         $ChildrenToProcess = @()
         $IAMToProcess = @()
         $PolicyToProcess = @()
+
+        if ($IncludeManagementGroups) {
+            $FilterChildrenByType += "Microsoft.Management/managementGroups"
+        }
+
+        if ($IncludeSubscriptions) {
+            $FilterChildrenByType += "Microsoft.Management/managementGroups/subscriptions", "Microsoft.Resources/subscriptions"
+        }
+
+        if ($IncludeResourceGroups) {
+            $FilterChildrenByType += "Microsoft.Resources/resourceGroups"
+        }
+
+        if ($IncludeIAM -and $IncludePolicy) {
+            $DiscoveryMode = [DiscoveryMode]"IncludeBoth"
+        }
+        elseif ($IncludeIAM) {
+            $DiscoveryMode = [DiscoveryMode]"IncludeIAM"
+        }
+        elseif ($IncludePolicy) {
+            $DiscoveryMode = [DiscoveryMode]"IncludePolicy"
+        }
+        else {
+            $DiscoveryMode = [DiscoveryMode]"ExcludeBoth"
+        }
+
+        if ($SkipCache) {
+            $CacheMode = [CacheMode]"SkipCache"
+        }
+        else {
+            $CacheMode = [CacheMode]"UseCache"
+        }
 
     }
 
@@ -114,17 +137,11 @@ function Get-AzStateChildrenByType {
                 Write-Verbose "[Get-AzStateChildrenByType] Processing [$($Profile.Count)] Resources of Type [$($Profile.Name)]"
             }
             $IdsToProcess = ($ChildrenToProcess | Sort-Object).Id
-            if ($ThrottleLimit -and $CacheMode) {
-                $AzStateOutput += [AzState]::FromIds($IdsToProcess, $ThrottleLimit, $CacheMode)
-            }
-            elseif ($ThrottleLimit) {
-                $AzStateOutput += [AzState]::FromIds($IdsToProcess, $ThrottleLimit)
-            }
-            elseif ($CacheMode) {
-                $AzStateOutput += [AzState]::FromIds($IdsToProcess, $CacheMode)
+            if ($ThrottleLimit) {
+                $AzStateOutput += [AzState]::FromIds($IdsToProcess, $ThrottleLimit, $CacheMode, $DiscoveryMode)
             }
             else {
-                $AzStateOutput += [AzState]::FromIds($IdsToProcess)
+                $AzStateOutput += [AzState]::FromIds($IdsToProcess, $CacheMode, $DiscoveryMode)
             }
         }
         if ($IAMToProcess) {
@@ -190,7 +207,7 @@ function New-AzStateDiscovery {
         [Parameter()]
         [Int]$ThrottleLimit,
         [Parameter()]
-        [CacheMode]$CacheMode
+        [Switch]$SkipCache
     )
 
     begin {
@@ -207,7 +224,7 @@ function New-AzStateDiscovery {
         Write-Verbose -Message "$("[AzStateDiscovery] {0} Policy"                -f $(($IncludePolicy)           ? {Including}      : {Excluding} ))"
         Write-Verbose -Message "$("[AzStateDiscovery] Using Recurse [{0}]"       -f $(($Recurse)                 ? {True}           : {False}     ))"
         Write-Verbose -Message "$("[AzStateDiscovery] Using ThrottleLimit [{0}]" -f $(($ThrottleLimit)           ? {$ThrottleLimit} : {Default}   ))"
-        Write-Verbose -Message "$("[AzStateDiscovery] Using Cache Mode [{0}]"    -f $(($CacheMode)               ? {$CacheMode}     : {Default}   ))"
+        Write-Verbose -Message "$("[AzStateDiscovery] Using Cache Mode [{0}]"    -f $(($SkipCache)               ? {SkipCache}      : {UseCache}  ))"
         if ($ExcludePathIds) {
             Write-Verbose -Message "[AzStateDiscovery] Excluding Resource IDs:"
             $ExcludePathIds | ForEach-Object { Write-Verbose -Message "[AzStateDiscovery]  - [$_]" }
@@ -223,12 +240,10 @@ function New-AzStateDiscovery {
             Write-Verbose "[AzStateDiscovery] Setting Root Id [$Id]"
 
             $ArgumentList = @{
-                Id = $Id
-            }
-            if ($CacheMode) {
-                $ArgumentList += @{
-                    CacheMode = $CacheMode
-                }
+                Id            = $Id
+                IncludeIAM    = $IncludeIAM
+                IncludePolicy = $IncludePolicy
+                SkipCache     = $SkipCache
             }
 
             $RootAzState = New-AzState @ArgumentList
@@ -242,6 +257,7 @@ function New-AzStateDiscovery {
                 IncludeResources        = $IncludeResources
                 IncludeIAM              = $IncludeIAM
                 IncludePolicy           = $IncludePolicy
+                SkipCache               = $SkipCache
             }
             if ($ExcludePathIds) {
                 $ArgumentListChildren += @{
@@ -251,11 +267,6 @@ function New-AzStateDiscovery {
             if ($ThrottleLimit) {
                 $ArgumentListChildren += @{
                     ThrottleLimit = $ThrottleLimit
-                }
-            }
-            if ($CacheMode) {
-                $ArgumentListChildren += @{
-                    CacheMode = $CacheMode
                 }
             }
 
