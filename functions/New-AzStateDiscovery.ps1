@@ -136,7 +136,7 @@ function Get-AzStateChildrenByType {
             foreach ($Profile in $ResourceProfile) {
                 Write-Verbose "[Get-AzStateChildrenByType] Processing [$($Profile.Count)] Resources of Type [$($Profile.Name)]"
             }
-            $IdsToProcess = ($ChildrenToProcess | Sort-Object).Id
+            $IdsToProcess = $ChildrenToProcess.Id | Sort-Object
             if ($ThrottleLimit) {
                 $AzStateOutput += [AzState]::FromIds($IdsToProcess, $ThrottleLimit, $CacheMode, $DiscoveryMode)
             }
