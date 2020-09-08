@@ -570,12 +570,12 @@ class AzState {
     # Sets DiscoveryMode to specified value
     [Void] Update([String]$Id, [CacheMode]$CacheMode, [DiscoveryMode]$DiscoveryMode) {
         if (($CacheMode -eq "UseCache") -and [AzState]::InCache($Id)) {
-            Write-Verbose "New-AzState (FROM CACHE) [$Id]"
+            Write-Information "New-AzState (FROM CACHE) [$Id]"
             $private:CachedAzState = [AzState]::SearchCache($Id)
             $this.Initialize($private:CachedAzState, $CacheMode, $DiscoveryMode, $true)
         }
         else {
-            Write-Verbose "New-AzState (FROM API) [$Id]"
+            Write-Information "New-AzState (FROM API) [$Id]"
             $private:GetAzConfig = [AzState]::GetAzConfig($Id, [CacheMode]"SkipCache")
             if ($private:GetAzConfig.Count -eq 1) {
                 $this.Initialize($private:GetAzConfig[0], $CacheMode, $DiscoveryMode, $false)
@@ -1361,7 +1361,9 @@ class AzState {
                 -ArgumentList $_, $private:IncludeIAM, $private:IncludePolicy, $private:SkipCache `
                 -ScriptBlock {
                 param ([Parameter()][String]$ScopeId, $IncludeIAM, $IncludePolicy, $SkipCache)
+                $InformationPreference = $using:InformationPreference
                 $VerbosePreference = $using:VerbosePreference
+                $DebugPreference = $using:DebugPreference
                 Write-Verbose "[FromIds] generating AzState for [$ScopeId]"
                 $private:AzStateObject = New-AzState -Id $ScopeId -IncludeIAM:$IncludeIAM -IncludePolicy:$IncludePolicy -SkipCache:$SkipCache
                 $FromIdsAzStateTracker = $using:FromIdsThreadSafeAzState
