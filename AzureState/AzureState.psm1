@@ -258,6 +258,10 @@ class AzStateSimple {
         return $private:Convert
     }
 
+    [String] ToString() {
+        return [String]"id={0}; type={1}" -f $this.Id, $this.Type
+    }
+
 }
 
 #######################
@@ -279,6 +283,10 @@ class AzStatePolicy {
         $this.PolicySetDefinitions = @()
     }
 
+    [String] ToString() {
+        return [String]"@{PolicyDefinitions=; PolicySetDefinitions=; PolicyAssignments=}"
+    }
+
 }
 
 ####################
@@ -296,6 +304,10 @@ class AzStateIAM {
     AzStateIAM() {
         $this.RoleDefinitions = @()
         $this.RoleAssignments = @()
+    }
+
+    [String] ToString() {
+        return [String]"@{RoleDefinitions=; RoleAssignments=}"
     }
 
 }
