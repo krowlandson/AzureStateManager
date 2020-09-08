@@ -939,6 +939,36 @@ class AzState {
         $this.ResourcePath = $this.GetResourcePath().ToString()
     }
 
+    # Method to return a string list of IDs for Role Assignments
+    # at the current object scope
+    [String[]] GetRoleAssignmentsAtScope() {
+        return $this.IAM.RoleAssignments.Id | Where-Object { $RegexExtractProviderScope.Match($_).Value -eq $this.Id }
+    }
+
+    # Method to return a string list of IDs for Role Definitions
+    # at the current object scope
+    [String[]] GetRoleDefinitionsAtScope() {
+        return $this.IAM.RoleDefinitions.Id | Where-Object { [AzState]::RegexExtractProviderScope.Match($_).Value -eq $this.Id }
+    }
+
+    # Method to return a string list of IDs for Policy Assignments
+    # at the current object scope
+    [String[]] GetPolicyAssignmentsAtScope() {
+        return $this.Policy.PolicyAssignments.Id | Where-Object { [AzState]::RegexExtractProviderScope.Match($_).Value -eq $this.Id }
+    }
+
+    # Method to return a string list of IDs for Policy Definitions
+    # at the current object scope
+    [String[]] GetPolicyDefinitionsAtScope() {
+        return $this.Policy.PolicyDefinitions.Id | Where-Object { [AzState]::RegexExtractProviderScope.Match($_).Value -eq $this.Id }
+    }
+
+    # Method to return a string list of IDs for Policy Set Definitions
+    # at the current object scope
+    [String[]] GetPolicySetDefinitionsAtScope() {
+        return $this.Policy.PolicySetDefinitions.Id | Where-Object { [AzState]::RegexExtractProviderScope.Match($_).Value -eq $this.Id }
+    }
+
     # ------------------------------------------------------------ #
     # IMPROVEMENT: Consider moving to new class or function for [Terraform]
     hidden [String] Terraform() {
