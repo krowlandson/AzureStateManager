@@ -259,7 +259,12 @@ class AzStateSimple {
     }
 
     [String] ToString() {
-        return [String]"id={0}; type={1}" -f $this.Id, $this.Type
+        if ($this.Id -or $this.Type) {
+            return [String]"id={0}; type={1}" -f $this.Id, $this.Type
+        }
+        else {
+            return [String]""
+        }
     }
 
 }
@@ -367,7 +372,8 @@ class AzState {
     )
 
     # Regex patterns for use within methods
-    hidden static [Regex]$RegexBeforeLastForwardSlash = "(?i)^.*(?=\/)"
+    hidden static [Regex]$RegexAfterLastForwardSlash = "(?!.*(?=\/)).*"
+    hidden static [Regex]$RegexBeforeLastForwardSlash = "^.*(?=\/)"
     hidden static [Regex]$RegexQuestionMarksAfterFirst = "(?<=[^\?]+\?[^\?]+)\?"
     hidden static [Regex]$RegexUriParams = "\?\S+"
     hidden static [Regex]$RegexRemoveParamsFromUri = "(?<=[^\?]+\?[^\?]+)\?"
@@ -376,6 +382,7 @@ class AzState {
     hidden static [Regex]$RegexIsSubscription = "(?i)(\/subscriptions)(?!\/.*\/)"
     hidden static [Regex]$RegexIsResourceGroup = "(?i)(\/resourceGroups)(?!\/.*\/)"
     hidden static [Regex]$RegexIsResource = "(?i)(\/resources)(?!\/.*\/)"
+    hidden static [Regex]$RegexExtractProviderScope = "(?i)\/(?=.*\/providers\/)[^\/]+\/[\S]+(?=.*\/providers\/)"
     hidden static [Regex]$RegexExtractSubscriptionId = "(?i)^(\/subscriptions\/)[^\/]{36}((?![^\/])|$)"
     hidden static [Regex]$RegexExtractResourceGroupId = "(?i)^(\/subscriptions\/)[^\/]{36}(\/resourceGroups\/)[^\/]+((?![^\/])|$)"
     hidden static [Regex]$RegexSubscriptionTypes = "(?i)^(Microsoft.)(Management\/managementGroups|Resources)\/(subscriptions)$"
@@ -848,9 +855,15 @@ class AzState {
                 }
             }
             Default {
-                $private:parent = [PsCustomObject]@{
-                    Id   = [AzState]::RegexExtractResourceGroupId.Match($this.Id).value
-                    Type = "Microsoft.Resources/resourceGroups"
+                $private:ScopeId = [AzState]::RegexExtractProviderScope.Match($this.Id).value
+                if ($private:ScopeId) {
+                    $private:parent = [PsCustomObject]@{
+                        Id   = $private:ScopeId
+                        Type = [AzState]::GetTypeFromId($private:ScopeId)
+                    }
+                }
+                else {
+                    $private:parent = $null
                 }
             }
         }
@@ -901,15 +914,24 @@ class AzState {
         $this.Parents = $private:parents
         # Create an ordered path of parent names from the parent
         # ID in string format and save to ParentPath attribute
-        [String]$private:parentPath = ""
-        foreach ($parent in $private:parents.Id) {
-            $private:parentPath = $private:parentPath + [AzState]::RegexBeforeLastForwardSlash.Replace($parent, "")
+        if ($private:parents) {
+            [String]$private:parentPath = ""
+            foreach ($parent in $private:parents.Id) {
+                $private:parentPath = $private:parentPath + [AzState]::RegexBeforeLastForwardSlash.Replace($parent, "")
+            }
+        }
+        else {
+            [String]$private:parentPath = "/"
         }
         $this.ParentPath = $private:parentPath.ToString()
     }
 
     hidden [String] GetResourcePath() {
-        $private:ResourcePath = $this.ParentPath + "/" + $this.Name
+        $private:ResourcePath = $this.ParentPath
+        if ($private:ResourcePath -ne "/") {
+            $private:ResourcePath = $private:ResourcePath + "/"
+        }
+        $private:ResourcePath = $private:ResourcePath + [AzState]::RegexAfterLastForwardSlash.Match($this.Id).Value
         return $private:ResourcePath
     }
 
