@@ -32,7 +32,7 @@ function New-AzState {
         else {
             $ArgumentList.ArgumentList += [CacheMode]"UseCache"
         }
-    
+
         if ($IncludeIAM -and $IncludePolicy) {
             $ArgumentList.ArgumentList += [DiscoveryMode]"IncludeBoth"
         }
