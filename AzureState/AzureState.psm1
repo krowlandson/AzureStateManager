@@ -258,15 +258,6 @@ class AzStateSimple {
         return $private:Convert
     }
 
-    [String] ToString() {
-        if ($this.Id -or $this.Type) {
-            return [String]"id={0}; type={1}" -f $this.Id, $this.Type
-        }
-        else {
-            return [String]""
-        }
-    }
-
 }
 
 #######################
@@ -288,10 +279,6 @@ class AzStatePolicy {
         $this.PolicySetDefinitions = @()
     }
 
-    [String] ToString() {
-        return [String]"@{PolicyDefinitions=; PolicySetDefinitions=; PolicyAssignments=}"
-    }
-
 }
 
 ####################
@@ -309,10 +296,6 @@ class AzStateIAM {
     AzStateIAM() {
         $this.RoleDefinitions = @()
         $this.RoleAssignments = @()
-    }
-
-    [String] ToString() {
-        return [String]"@{RoleDefinitions=; RoleAssignments=}"
     }
 
 }
@@ -370,6 +353,9 @@ class AzState {
         "Microsoft.Resources/subscriptions"
         "Microsoft.Resources/resourceGroups"
     )
+
+    # Thread safe object containing a map of parents once generated
+    hidden static [System.Collections.Concurrent.ConcurrentDictionary[String, String]]$ParentMap
 
     # Regex patterns for use within methods
     hidden static [Regex]$RegexAfterLastForwardSlash = "(?!.*(?=\/)).*"
@@ -570,7 +556,7 @@ class AzState {
     # Sets DiscoveryMode to specified value
     [Void] Update([String]$Id, [CacheMode]$CacheMode, [DiscoveryMode]$DiscoveryMode) {
         if (($CacheMode -eq "UseCache") -and [AzState]::InCache($Id)) {
-            Write-Information "New-AzState (FROM CACHE) [$Id]"
+            Write-Verbose "New-AzState (FROM CACHE) [$Id]"
             $private:CachedAzState = [AzState]::SearchCache($Id)
             $this.Initialize($private:CachedAzState, $CacheMode, $DiscoveryMode, $true)
         }
@@ -732,9 +718,17 @@ class AzState {
     # Method to get Children based on Resource Type of object
     # Uses GetAzConfig to prevent circular loop caused by FromScope
     hidden [Object[]] GetChildren() {
+        if (-not [AzState]::ParentMap) {
+            [AzState]::ParentMap = [System.Collections.Concurrent.ConcurrentDictionary[String, String]]::new()
+        }
         switch ($this.Type) {
             "Microsoft.Management/managementGroups" {
                 $private:children = [AzState]::GetAzConfig("$($this.Id)/descendants")
+                # Update the ParentMap static property to improve Parent lookup
+                # for future Management Group and Subscription discoveries
+                foreach ($private:child in $private:children) {
+                    [AzState]::ParentMap.TryAdd($private:child.id, $private:child.properties.parent.id)
+                }
             }
             "Microsoft.Resources/subscriptions" {
                 $private:children = [AzState]::GetAzConfig("$($this.Id)/resourceGroups")
@@ -844,9 +838,19 @@ class AzState {
                 }
             }
             "Microsoft.Resources/subscriptions" {
-                $private:managementGroups = [AzState]::FromScope("/providers/Microsoft.Management/managementGroups")
-                $private:searchParent = $private:managementGroups | Where-Object { $_.Children.Id -Contains "$($this.Id)" }
-                $private:parent = [AzStateSimple]::new($private:searchParent)
+                $private:CheckParentMap = [AzState]::ParentMap[$this.Id]
+                if ($private:CheckParentMap) {
+                    $private:parent = $private:CheckParentMap
+                    $private:parent = [PsCustomObject]@{
+                        Id   = $private:CheckParentMap
+                        Type = [AzState]::GetTypeFromId($private:CheckParentMap)
+                    }
+                }
+                else {
+                    $private:managementGroups = [AzState]::FromScope("/providers/Microsoft.Management/managementGroups")
+                    $private:searchParent = $private:managementGroups | Where-Object { $_.Children.Id -Contains "$($this.Id)" }
+                    $private:parent = [AzStateSimple]::new($private:searchParent)
+                }
             }
             "Microsoft.Resources/resourceGroups" {
                 $private:parent = [PsCustomObject]@{
@@ -1364,7 +1368,7 @@ class AzState {
                 $InformationPreference = $using:InformationPreference
                 $VerbosePreference = $using:VerbosePreference
                 $DebugPreference = $using:DebugPreference
-                Write-Verbose "[FromIds] generating AzState for [$ScopeId]"
+                Write-Information "[FromIds] generating AzState for [$ScopeId]"
                 $private:AzStateObject = New-AzState -Id $ScopeId -IncludeIAM:$IncludeIAM -IncludePolicy:$IncludePolicy -SkipCache:$SkipCache
                 $FromIdsAzStateTracker = $using:FromIdsThreadSafeAzState
                 $FromIdsAzStateTracker.TryAdd($private:AzStateObject.Id, $private:AzStateObject)
