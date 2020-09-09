@@ -323,8 +323,14 @@ class AzStateRestCache {
 # [AzState] Class #
 ###################
 
-# [AzState] class used to create and update new AsOpsState objects
-# This is the primary module class containing all logic for managing [AzState] for Azure Resources
+# The [AzState] class used to create and update new AsState objects
+# This is the primary module class containing all logic for managing
+# [AzState] objects for Azure Resources.
+# By default, the Cache in case insensitive mode to minimise false
+# Cache misses due to inconsistent case in API responses.
+# By default, discovery for IAM and Policy is excluded due to the
+# high overhead this incurs on discovery (time and performance).
+
 class AzState {
 
     # Public class properties
@@ -345,6 +351,7 @@ class AzState {
     # Hidden static class properties
     hidden static [String[]]$DefaultProperties = "Id", "Type", "Name"
     hidden static [CacheMode]$DefaultCacheMode = "UseCache"
+    hidden static [Boolean]$DefaultCacheCaseSenstive = $false
     hidden static [DiscoveryMode]$DefaultDiscoveryMode = "ExcludeBoth"
     hidden static [Int]$DefaultThrottleLimit = 4
     hidden static [String[]]$DefaultAzStateChildrenTypes = @(
@@ -1404,13 +1411,21 @@ class AzState {
 
     # Static method to show all entries in Cache matching the specified resource Id
     hidden static [AzState[]] SearchCache([String]$Id) {
-        return [AzState]::Cache[$Id]
+        if ([AzState]::DefaultCacheCaseSenstive) {
+            return [AzState]::Cache[$Id]
+        }
+        else {
+            return [AzState]::Cache[$Id.ToLower()]
+        }
     }
 
     # Static method to return [Boolean] for Resource in Cache query
     hidden static [Boolean] InCache([String]$Id) {
-        if ([AzState]::Cache) {
+        if ([AzState]::Cache -and [AzState]::DefaultCacheCaseSenstive) {
             return ([AzState]::Cache).ContainsKey($Id)
+        }
+        elseif ([AzState]::Cache) {
+            return ([AzState]::Cache).ContainsKey($Id.ToLower())
         }
         else {
             # The following prevents needing to initialize the cache
@@ -1437,7 +1452,12 @@ class AzState {
             [AzState]::InitializeCache()
         }
         foreach ($AzState in $AddToCache) {
-            $AddedToCache = [AzState]::Cache.TryAdd($AzState.Id, $AzState)
+            if ([AzState]::DefaultCacheCaseSenstive) {
+                $AddedToCache = [AzState]::Cache.TryAdd($AzState.Id, $AzState)
+            }
+            else {
+                $AddedToCache = [AzState]::Cache.TryAdd($AzState.Id.ToLower(), $AzState)
+            }
             if ($AddedToCache) {
                 Write-Verbose "Added Resource to AzState Cache [$($AzState.Id)]"
             }
@@ -1479,13 +1499,21 @@ class AzState {
 
     # Static method to show all entries in Rest Cache matching the specified Uri
     hidden static [PsCustomObject[]] SearchRestCache([String]$Uri) {
-        return [AzState]::RestCache[$Uri]
+        if ([AzState]::DefaultCacheCaseSenstive) {
+            return [AzState]::RestCache[$Uri]
+        }
+        else {
+            return [AzState]::RestCache[$Uri.ToLower()]
+        }
     }
 
     # Static method to return [Boolean] for Response in Rest Cache query
     hidden static [Boolean] InRestCache([String]$Uri) {
-        if ([AzState]::RestCache) {
+        if ([AzState]::RestCache -and [AzState]::DefaultCacheCaseSenstive) {
             return ([AzState]::RestCache).ContainsKey($Uri)
+        }
+        elseif ([AzState]::RestCache) {
+            return ([AzState]::RestCache).ContainsKey($Uri.ToLower())
         }
         else {
             # The following prevents needing to initialize the cache
@@ -1505,7 +1533,12 @@ class AzState {
             [AzState]::InitializeRestCache()
         }
         foreach ($Response in $AddToCache) {
-            $AddedToCache = [AzState]::RestCache.TryAdd($Response.Key, $Response.Value)
+            if ([AzState]::DefaultCacheCaseSenstive) {
+                $AddedToCache = [AzState]::RestCache.TryAdd($Response.Key, $Response.Value)
+            }
+            else {
+                $AddedToCache = [AzState]::RestCache.TryAdd($Response.Key.ToLower(), $Response.Value)
+            }
             if ($AddedToCache) {
                 Write-Verbose "Added API Response to Cache [$($Response.Key)]"
             }
